@@ -1,0 +1,47 @@
+@import "tailwindcss";
+
+@font-face {
+  font-family: "Coolvetica";
+  src: url("../../assets/fonts/Coolvetica Rg.otf") format("opentype");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Coolvetica";
+  src: url("../../assets/fonts/Coolvetica Rg It.otf") format("opentype");
+  font-weight: normal;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Coolvetica";
+  src: url("../../assets/fonts/Coolvetica Hv Comp.otf") format("opentype");
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Coolvetica Condensed";
+  src: url("../../assets/fonts/Coolvetica Rg Cond.otf") format("opentype");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Coolvetica Crammed";
+  src: url("../../assets/fonts/Coolvetica Rg Cram.otf") format("opentype");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@theme {
+  --font-coolvetica: "Coolvetica", sans-serif;
+  --font-coolvetica-cond: "Coolvetica Condensed", sans-serif;
+  --font-coolvetica-cram: "Coolvetica Crammed", sans-serif;
+}

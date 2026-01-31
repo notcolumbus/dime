@@ -1,6 +1,10 @@
 import { defineConfig } from 'wxt';
+import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
+  vite: () => ({
+    plugins: [tailwindcss()],
+  }),
   manifest: {
     name: 'Card Optimizer',
     description: 'Get the best credit card recommendation at checkout',

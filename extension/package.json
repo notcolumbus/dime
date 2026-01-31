@@ -12,7 +12,16 @@
     "zip:firefox": "wxt zip --browser firefox"
   },
   "devDependencies": {
+    "@types/react": "^19.2.10",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.2",
+    "tailwindcss": "^4.1.18",
     "typescript": "^5.3.0",
     "wxt": "^0.20.0"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.1.18",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
   }
 }
