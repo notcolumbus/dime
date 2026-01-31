@@ -13,6 +13,18 @@ KNOT_CLIENT_ID = os.getenv("KNOT_CLIENT_ID")
 KNOT_CLIENT_SECRET = os.getenv("KNOT_CLIENT_SECRET")
 PHOTON_SERVER_URL = os.getenv("PHOTON_SERVER_URL", "http://localhost:4000")
 
+# Snowflake integration (lazy loaded to avoid blocking startup)
+snowflake_db = None
+def get_snowflake():
+    global snowflake_db
+    if snowflake_db is None:
+        try:
+            from snowflake_db import get_db
+            snowflake_db = get_db()
+        except Exception as e:
+            print(f"Snowflake not available: {e}")
+    return snowflake_db
+
 saved_transactions = []
 
 @app.route("/")
@@ -86,7 +98,23 @@ def sync_transactions():
             auth=(KNOT_CLIENT_ID, KNOT_CLIENT_SECRET),
             headers={"Content-Type": "application/json"}
         )
-        return jsonify(response.json()), response.status_code
+        data = response.json()
+        
+        # Save transactions to Snowflake if available
+        db = get_snowflake()
+        if db and response.ok and "transactions" in data:
+            try:
+                merchant_info = data.get("merchant", {})
+                db.save_transactions_batch(
+                    data["transactions"],
+                    user_id,
+                    int(merchant_id),
+                    merchant_info.get("name", "Unknown")
+                )
+            except Exception as e:
+                print(f"Failed to save to Snowflake: {e}")
+        
+        return jsonify(data), response.status_code
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -125,16 +153,89 @@ def get_top_of_file():
     pass
 
 
-@app.route("/api/cashflow", methods=["GET"])
+@app.route("/api/cashflow", methods=["GET", "POST"])
 def get_cashflow():
-    """Get cashflow data - placeholder"""
-    pass
+    """Get cashflow analytics from Snowflake"""
+    db = get_snowflake()
+    if not db:
+        return jsonify({"error": "Snowflake not configured", "by_category": []}), 200
+    
+    data = request.json if request.method == "POST" else {}
+    user_id = data.get("user_id", request.args.get("user_id", "test_user"))
+    days = int(data.get("days", request.args.get("days", 30)))
+    
+    try:
+        result = db.get_cashflow(user_id, days)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e), "by_category": []}), 200
 
 
 @app.route("/api/alerts", methods=["GET"])
 def get_alerts():
     """Get alerts - placeholder"""
     pass
+
+
+# --- Snowflake Management ---
+
+@app.route("/api/snowflake/setup", methods=["POST"])
+def setup_snowflake():
+    """Setup Snowflake tables and category embeddings"""
+    db = get_snowflake()
+    if not db:
+        return jsonify({"error": "Snowflake not configured"}), 500
+    
+    try:
+        # Create tables
+        db.setup_tables()
+        # Populate category embeddings
+        db.populate_category_embeddings()
+        return jsonify({"success": True, "message": "Snowflake setup complete"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/snowflake/test", methods=["GET"])
+def test_snowflake():
+    """Test Snowflake connection"""
+    db = get_snowflake()
+    if not db:
+        return jsonify({"connected": False, "error": "Snowflake not configured"})
+    return jsonify(db.test_connection())
+
+
+@app.route("/api/classify-transactions", methods=["POST"])
+def classify_transactions():
+    """Classify all uncategorized transactions using vector search"""
+    db = get_snowflake()
+    if not db:
+        return jsonify({"error": "Snowflake not configured"}), 500
+    
+    try:
+        result = db.classify_all_unclassified()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/transactions/stored", methods=["GET", "POST"])
+def get_stored_transactions():
+    """Get transactions stored in Snowflake"""
+    db = get_snowflake()
+    if not db:
+        return jsonify({"error": "Snowflake not configured", "transactions": []}), 200
+    
+    data = request.json if request.method == "POST" else {}
+    user_id = data.get("user_id", request.args.get("user_id", "test_user"))
+    merchant_id = data.get("merchant_id", request.args.get("merchant_id"))
+    limit = int(data.get("limit", request.args.get("limit", 50)))
+    
+    try:
+        transactions = db.get_transactions(user_id, int(merchant_id) if merchant_id else None, limit)
+        return jsonify({"transactions": transactions})
+    except Exception as e:
+        return jsonify({"error": str(e), "transactions": []}), 200
 
 
 @app.route("/api/optimal-card", methods=["POST"])
