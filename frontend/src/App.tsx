@@ -23,14 +23,10 @@ function App() {
         </h1>
 
         <Cards />
-        <OptimalCard />
         <Merchants />
         <Transactions />
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
-          <TopOfFile />
-          <Cashflow />
         </div>
-        <Alerts />
 
         {/* Floating Chatbot */}
         <Chatbot />
