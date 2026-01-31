@@ -89,11 +89,23 @@ class SnowflakeDB:
         """Create required tables if they don't exist"""
         conn, cursor = self._get_connection()
         
+        # First, create database and schema if they don't exist
+        db_name = SNOWFLAKE_CONFIG["database"]
+        schema_name = SNOWFLAKE_CONFIG["schema"]
+        warehouse = SNOWFLAKE_CONFIG["warehouse"]
+        
+        cursor.execute(f"CREATE DATABASE IF NOT EXISTS {db_name}")
+        cursor.execute(f"USE DATABASE {db_name}")
+        cursor.execute(f"CREATE SCHEMA IF NOT EXISTS {schema_name}")
+        cursor.execute(f"USE SCHEMA {schema_name}")
+        cursor.execute(f"USE WAREHOUSE {warehouse}")
+        
         # Cards table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS CARDS (
                 card_id VARCHAR PRIMARY KEY,
                 user_id VARCHAR,
+                card_type VARCHAR(20),
                 card_number_encrypted VARCHAR,
                 card_last_four VARCHAR(4),
                 expiration VARCHAR(10),
@@ -109,6 +121,12 @@ class SnowflakeDB:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP()
             )
         """)
+        
+        # Add card_type column if it doesn't exist (for existing tables)
+        try:
+            cursor.execute("ALTER TABLE CARDS ADD COLUMN IF NOT EXISTS card_type VARCHAR(20)")
+        except:
+            pass  # Column may already exist
         
         # Transactions table
         cursor.execute("""
@@ -140,7 +158,7 @@ class SnowflakeDB:
         """)
         
         conn.commit()
-        return {"success": True, "message": "Tables created"}
+        return {"success": True, "message": "Database, schema, and tables created"}
     
     def populate_category_embeddings(self):
         """Pre-compute embeddings for categories using Cortex"""
@@ -177,19 +195,22 @@ class SnowflakeDB:
         address = user_info.get("address", {})
         
         card_number = card_info.get("number", "")
+        card_type = card_info.get("card_type", "")
+        last_four = card_info.get("last_four", "") or (card_number[-4:] if len(card_number) >= 4 else "****")
         
         cursor.execute("""
             INSERT INTO CARDS (
-                card_id, user_id, card_number_encrypted, card_last_four,
+                card_id, user_id, card_type, card_number_encrypted, card_last_four,
                 expiration, cardholder_first_name, cardholder_last_name,
                 billing_street, billing_street2, billing_city, billing_region,
                 billing_postal_code, billing_country, phone_number
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (
             card_id,
             user_id,
+            card_type,
             f"ENC:{card_number[:6]}****{card_number[-4:]}" if len(card_number) >= 10 else "ENC:****",
-            card_number[-4:] if len(card_number) >= 4 else "****",
+            last_four,
             card_info.get("expiration", ""),
             name.get("first_name", ""),
             name.get("last_name", ""),
@@ -211,7 +232,7 @@ class SnowflakeDB:
         
         if user_id:
             cursor.execute("""
-                SELECT card_id, card_last_four, expiration, 
+                SELECT card_id, card_type, card_last_four, expiration, 
                        cardholder_first_name, cardholder_last_name,
                        billing_city, billing_region, created_at
                 FROM CARDS WHERE user_id = %s
@@ -219,7 +240,7 @@ class SnowflakeDB:
             """, (user_id,))
         else:
             cursor.execute("""
-                SELECT card_id, card_last_four, expiration,
+                SELECT card_id, card_type, card_last_four, expiration,
                        cardholder_first_name, cardholder_last_name,
                        billing_city, billing_region, created_at
                 FROM CARDS ORDER BY created_at DESC
@@ -230,11 +251,13 @@ class SnowflakeDB:
         for row in rows:
             cards.append({
                 "card_id": row[0],
-                "card_number": f"****{row[1]}",
-                "expiration": row[2],
-                "cardholder": f"{row[3]} {row[4]}".strip(),
-                "location": f"{row[5]}, {row[6]}".strip(", "),
-                "created_at": str(row[7]) if row[7] else None,
+                "card_type": row[1] or "Unknown",
+                "last_four": row[2],
+                "card_number": f"****{row[2]}",
+                "expiration": row[3],
+                "cardholder": f"{row[4]} {row[5]}".strip(),
+                "location": f"{row[6]}, {row[7]}".strip(", "),
+                "created_at": str(row[8]) if row[8] else None,
             })
         return cards
     

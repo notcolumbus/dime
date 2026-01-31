@@ -2,26 +2,30 @@ import { useState, useEffect, useCallback } from "react";
 
 interface CardData {
     card_id: string;
-    user: {
-        name: {
-            first_name: string;
-            last_name: string;
-        };
-        address: {
-            street: string;
-            street2: string;
-            city: string;
-            region: string;
-            postal_code: string;
-            country: string;
-        };
-        phone_number: string;
-    };
-    card: {
-        number: string;
-        expiration: string;
-    };
+    card_type: string;
+    last_four: string;
+    card_number: string;
+    expiration: string;
+    cardholder: string;
+    location?: string;
+    created_at?: string;
 }
+
+const CARD_TYPES = [
+    { value: "visa", label: "Visa", icon: "💳" },
+    { value: "mastercard", label: "Mastercard", icon: "💳" },
+    { value: "amex", label: "American Express", icon: "💳" },
+    { value: "discover", label: "Discover", icon: "💳" },
+    { value: "other", label: "Other", icon: "💳" },
+];
+
+const CARD_TYPE_COLORS: Record<string, string> = {
+    visa: "#1a1f71",
+    mastercard: "#eb001b",
+    amex: "#006fcf",
+    discover: "#ff6000",
+    other: "#666",
+};
 
 export default function Cards() {
     const [cards, setCards] = useState<CardData[]>([]);
@@ -29,19 +33,12 @@ export default function Cards() {
     const [error, setError] = useState<string | null>(null);
     const [showForm, setShowForm] = useState(false);
 
-    // Form state
+    // Form state - simplified
+    const [cardType, setCardType] = useState("visa");
+    const [lastFour, setLastFour] = useState("");
+    const [expiration, setExpiration] = useState("");
     const [firstName, setFirstName] = useState("");
     const [lastName, setLastName] = useState("");
-    const [street, setStreet] = useState("");
-    const [street2, setStreet2] = useState("");
-    const [city, setCity] = useState("");
-    const [region, setRegion] = useState("");
-    const [postalCode, setPostalCode] = useState("");
-    const [country, setCountry] = useState("US");
-    const [phone, setPhone] = useState("");
-    const [cardNumber, setCardNumber] = useState("");
-    const [expiration, setExpiration] = useState("");
-    const [cvv, setCvv] = useState("");
 
     const PYTHON_SERVER_URL = "http://localhost:5001";
 
@@ -66,6 +63,12 @@ export default function Cards() {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        if (lastFour.length !== 4 || !/^\d{4}$/.test(lastFour)) {
+            setError("Last 4 digits must be exactly 4 numbers");
+            return;
+        }
+
         try {
             setLoading(true);
             setError(null);
@@ -76,16 +79,15 @@ export default function Cards() {
                 body: JSON.stringify({
                     user: {
                         name: { first_name: firstName, last_name: lastName },
-                        address: {
-                            street, street2, city, region,
-                            postal_code: postalCode, country
-                        },
-                        phone_number: phone
+                        address: {},
+                        phone_number: ""
                     },
                     card: {
-                        number: cardNumber,
+                        card_type: cardType,
+                        last_four: lastFour,
+                        number: "",  // Not required anymore
                         expiration,
-                        cvv
+                        cvv: ""
                     }
                 })
             });
@@ -96,10 +98,11 @@ export default function Cards() {
             }
 
             // Reset form and refresh
-            setFirstName(""); setLastName("");
-            setStreet(""); setStreet2(""); setCity(""); setRegion("");
-            setPostalCode(""); setCountry("US"); setPhone("");
-            setCardNumber(""); setExpiration(""); setCvv("");
+            setCardType("visa");
+            setLastFour("");
+            setExpiration("");
+            setFirstName("");
+            setLastName("");
             setShowForm(false);
             fetchCards();
         } catch (err) {
@@ -111,19 +114,19 @@ export default function Cards() {
 
     const inputStyle = {
         width: "100%",
-        padding: "8px",
-        fontSize: "13px",
+        padding: "10px",
+        fontSize: "14px",
         border: "1px solid #ddd",
-        borderRadius: "4px",
+        borderRadius: "6px",
         boxSizing: "border-box" as const
     };
 
     const labelStyle = {
         display: "block",
-        fontSize: "11px",
+        fontSize: "12px",
         fontWeight: "600" as const,
         color: "#666",
-        marginBottom: "4px"
+        marginBottom: "6px"
     };
 
     return (
@@ -143,12 +146,12 @@ export default function Cards() {
                 <button
                     onClick={() => setShowForm(!showForm)}
                     style={{
-                        padding: "6px 12px",
-                        fontSize: "12px",
+                        padding: "8px 16px",
+                        fontSize: "13px",
                         backgroundColor: showForm ? "#6c757d" : "#007bff",
                         color: "#fff",
                         border: "none",
-                        borderRadius: "4px",
+                        borderRadius: "6px",
                         cursor: "pointer"
                     }}
                 >
@@ -157,67 +160,83 @@ export default function Cards() {
             </div>
 
             {error && (
-                <div style={{ padding: "12px", backgroundColor: "#fee", borderRadius: "4px", color: "#c00", fontSize: "13px", marginBottom: "12px" }}>
+                <div style={{ padding: "12px", backgroundColor: "#fee", borderRadius: "6px", color: "#c00", fontSize: "13px", marginBottom: "12px" }}>
                     {error}
                 </div>
             )}
 
             {showForm && (
-                <form onSubmit={handleSubmit} style={{ marginBottom: "16px", padding: "16px", backgroundColor: "#f9f9f9", borderRadius: "6px" }}>
-                    <div style={{ fontSize: "13px", fontWeight: "600", color: "#333", marginBottom: "12px" }}>Cardholder Info</div>
+                <form onSubmit={handleSubmit} style={{ marginBottom: "16px", padding: "16px", backgroundColor: "#f9f9f9", borderRadius: "8px" }}>
+                    <div style={{ marginBottom: "16px" }}>
+                        <label style={labelStyle}>Card Type</label>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "8px" }}>
+                            {CARD_TYPES.map((type) => (
+                                <button
+                                    key={type.value}
+                                    type="button"
+                                    onClick={() => setCardType(type.value)}
+                                    style={{
+                                        padding: "10px 4px",
+                                        fontSize: "11px",
+                                        fontWeight: cardType === type.value ? "600" : "400",
+                                        backgroundColor: cardType === type.value ? CARD_TYPE_COLORS[type.value] : "#fff",
+                                        color: cardType === type.value ? "#fff" : "#333",
+                                        border: `2px solid ${cardType === type.value ? CARD_TYPE_COLORS[type.value] : "#ddd"}`,
+                                        borderRadius: "6px",
+                                        cursor: "pointer",
+                                        transition: "all 0.2s"
+                                    }}
+                                >
+                                    {type.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
 
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "12px" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "16px" }}>
+                        <div>
+                            <label style={labelStyle}>Last 4 Digits</label>
+                            <input
+                                style={inputStyle}
+                                value={lastFour}
+                                onChange={(e) => setLastFour(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                                placeholder="1234"
+                                maxLength={4}
+                                required
+                            />
+                        </div>
+                        <div>
+                            <label style={labelStyle}>Expiration</label>
+                            <input
+                                style={inputStyle}
+                                value={expiration}
+                                onChange={(e) => setExpiration(e.target.value)}
+                                placeholder="MM/YY"
+                                required
+                            />
+                        </div>
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "16px" }}>
                         <div>
                             <label style={labelStyle}>First Name</label>
-                            <input style={inputStyle} value={firstName} onChange={e => setFirstName(e.target.value)} required />
+                            <input
+                                style={inputStyle}
+                                value={firstName}
+                                onChange={(e) => setFirstName(e.target.value)}
+                                placeholder="John"
+                                required
+                            />
                         </div>
                         <div>
                             <label style={labelStyle}>Last Name</label>
-                            <input style={inputStyle} value={lastName} onChange={e => setLastName(e.target.value)} required />
-                        </div>
-                    </div>
-
-                    <div style={{ marginBottom: "8px" }}>
-                        <label style={labelStyle}>Street Address</label>
-                        <input style={inputStyle} value={street} onChange={e => setStreet(e.target.value)} placeholder="100 Main Street" />
-                    </div>
-                    <div style={{ marginBottom: "8px" }}>
-                        <label style={labelStyle}>Street 2</label>
-                        <input style={inputStyle} value={street2} onChange={e => setStreet2(e.target.value)} placeholder="Apt #100" />
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: "8px", marginBottom: "8px" }}>
-                        <div>
-                            <label style={labelStyle}>City</label>
-                            <input style={inputStyle} value={city} onChange={e => setCity(e.target.value)} />
-                        </div>
-                        <div>
-                            <label style={labelStyle}>State</label>
-                            <input style={inputStyle} value={region} onChange={e => setRegion(e.target.value)} placeholder="NY" />
-                        </div>
-                        <div>
-                            <label style={labelStyle}>ZIP</label>
-                            <input style={inputStyle} value={postalCode} onChange={e => setPostalCode(e.target.value)} />
-                        </div>
-                    </div>
-                    <div style={{ marginBottom: "12px" }}>
-                        <label style={labelStyle}>Phone</label>
-                        <input style={inputStyle} value={phone} onChange={e => setPhone(e.target.value)} placeholder="+11234567890" />
-                    </div>
-
-                    <div style={{ fontSize: "13px", fontWeight: "600", color: "#333", marginBottom: "12px", marginTop: "16px" }}>Card Details</div>
-
-                    <div style={{ marginBottom: "8px" }}>
-                        <label style={labelStyle}>Card Number</label>
-                        <input style={inputStyle} value={cardNumber} onChange={e => setCardNumber(e.target.value)} placeholder="4242424242424242" required />
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "16px" }}>
-                        <div>
-                            <label style={labelStyle}>Expiration</label>
-                            <input style={inputStyle} value={expiration} onChange={e => setExpiration(e.target.value)} placeholder="08/2030" required />
-                        </div>
-                        <div>
-                            <label style={labelStyle}>CVV</label>
-                            <input style={inputStyle} value={cvv} onChange={e => setCvv(e.target.value)} placeholder="123" type="password" />
+                            <input
+                                style={inputStyle}
+                                value={lastName}
+                                onChange={(e) => setLastName(e.target.value)}
+                                placeholder="Doe"
+                                required
+                            />
                         </div>
                     </div>
 
@@ -226,13 +245,13 @@ export default function Cards() {
                         disabled={loading}
                         style={{
                             width: "100%",
-                            padding: "10px",
+                            padding: "12px",
                             fontSize: "14px",
                             fontWeight: "600",
                             backgroundColor: loading ? "#ccc" : "#28a745",
                             color: "#fff",
                             border: "none",
-                            borderRadius: "4px",
+                            borderRadius: "6px",
                             cursor: loading ? "not-allowed" : "pointer"
                         }}
                     >
@@ -242,32 +261,43 @@ export default function Cards() {
             )}
 
             {cards.length > 0 ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                     {cards.map((card, index) => (
                         <div key={card.card_id || index} style={{
-                            padding: "12px",
-                            backgroundColor: "#f5f5f5",
-                            borderRadius: "6px",
+                            padding: "14px",
+                            backgroundColor: "#f8f9fa",
+                            borderRadius: "8px",
+                            borderLeft: `4px solid ${CARD_TYPE_COLORS[card.card_type?.toLowerCase()] || "#666"}`,
                             display: "flex",
                             justifyContent: "space-between",
                             alignItems: "center"
                         }}>
                             <div>
-                                <div style={{ fontSize: "14px", fontWeight: "600", color: "#333" }}>
-                                    {card.card.number}
+                                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                                    <span style={{
+                                        fontSize: "12px",
+                                        fontWeight: "600",
+                                        color: "#fff",
+                                        backgroundColor: CARD_TYPE_COLORS[card.card_type?.toLowerCase()] || "#666",
+                                        padding: "2px 8px",
+                                        borderRadius: "4px",
+                                        textTransform: "uppercase"
+                                    }}>
+                                        {card.card_type || "Card"}
+                                    </span>
+                                    <span style={{ fontSize: "16px", fontWeight: "600", color: "#333", fontFamily: "monospace" }}>
+                                        •••• {card.last_four}
+                                    </span>
                                 </div>
-                                <div style={{ fontSize: "12px", color: "#888" }}>
-                                    {card.user.name.first_name} {card.user.name.last_name} • Exp: {card.card.expiration}
+                                <div style={{ fontSize: "12px", color: "#666" }}>
+                                    {card.cardholder} • Exp: {card.expiration}
                                 </div>
-                            </div>
-                            <div style={{ fontSize: "11px", color: "#aaa", fontFamily: "monospace" }}>
-                                {card.card_id.slice(0, 8)}...
                             </div>
                         </div>
                     ))}
                 </div>
             ) : (
-                <div style={{ padding: "20px", backgroundColor: "#f5f5f5", borderRadius: "4px", textAlign: "center", color: "#888" }}>
+                <div style={{ padding: "24px", backgroundColor: "#f5f5f5", borderRadius: "8px", textAlign: "center", color: "#888" }}>
                     No cards saved yet
                 </div>
             )}
