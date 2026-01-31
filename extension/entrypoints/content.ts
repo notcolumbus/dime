@@ -3,7 +3,7 @@ import { getRecommendationForMerchant } from '../utils/mockData';
 import type { CardRecommendation, ExtensionMessage } from '../types';
 
 // Demo mode - set to false when backend is ready
-const DEMO_MODE = true;
+const DEMO_MODE = false;
 
 export default defineContentScript({
   matches: [
@@ -106,7 +106,7 @@ export default defineContentScript({
       try {
         const message: ExtensionMessage = {
           type: 'GET_BEST_CARD',
-          payload: { merchantId: merchant.id },
+          payload: { merchantId: merchant.id, category: merchant.category },
         };
 
         const response = await browser.runtime.sendMessage(message);

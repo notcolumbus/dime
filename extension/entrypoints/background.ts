@@ -1,5 +1,5 @@
-import { getBestCard, switchCard, getUserCards } from '../utils/api';
-import { getSettings, getAuth } from '../utils/storage';
+import { getBestCard, switchCard, getUserCards, USER_ID } from '../utils/api';
+import { getSettings } from '../utils/storage';
 import type {
   ExtensionMessage,
   GetBestCardPayload,
@@ -34,8 +34,8 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
 
   switch (message.type) {
     case 'GET_BEST_CARD': {
-      const payload = message.payload as GetBestCardPayload;
-      return await handleGetBestCard(payload.merchantId);
+      const payload = message.payload as GetBestCardPayload & { category?: string };
+      return await handleGetBestCard(payload.merchantId, payload.category);
     }
 
     case 'SWITCH_CARD': {
@@ -52,9 +52,9 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
   }
 }
 
-async function handleGetBestCard(merchantId: string): Promise<CardRecommendation | { error: string }> {
+async function handleGetBestCard(merchantId: string, category?: string): Promise<CardRecommendation | { error: string }> {
   try {
-    const recommendation = await getBestCard(merchantId);
+    const recommendation = await getBestCard(merchantId, category);
     return recommendation;
   } catch (error) {
     console.error('Error fetching best card:', error);
@@ -64,13 +64,8 @@ async function handleGetBestCard(merchantId: string): Promise<CardRecommendation
 
 async function handleSwitchCard(payload: SwitchCardPayload): Promise<SwitchCardResponse | { error: string }> {
   try {
-    const auth = await getAuth();
-    if (!auth.userId) {
-      return { error: 'User not authenticated' };
-    }
-
     const result = await switchCard({
-      user_id: auth.userId,
+      user_id: USER_ID,
       merchant_id: payload.merchantId,
       current_card_id: payload.currentCardId,
       switch_to_card_id: payload.switchToCardId,
