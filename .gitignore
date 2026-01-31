@@ -1,0 +1,28 @@
+# Project-specific
+PRD.md
+extension/PLAN.md
+extension/active_merchants.numbers
+
+# Dependencies
+node_modules/
+
+# Build output
+.output/
+*.zip
+
+# WXT cache
+.wxt/
+
+# Environment variables
+.env
+.env.local
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.claude/

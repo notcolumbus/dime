@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Card Optimizer</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      width: 340px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #fafafa;
+    }
+
+    .header {
+      background: #1976d2;
+      color: white;
+      padding: 16px;
+      text-align: center;
+    }
+
+    .header h1 {
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .content {
+      padding: 16px;
+    }
+
+    .setting-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 0;
+      border-bottom: 1px solid #eee;
+    }
+
+    .setting-row:last-child {
+      border-bottom: none;
+    }
+
+    .setting-label {
+      font-size: 14px;
+      color: #333;
+    }
+
+    .setting-description {
+      font-size: 12px;
+      color: #666;
+      margin-top: 2px;
+    }
+
+    .toggle {
+      position: relative;
+      width: 48px;
+      height: 24px;
+      background: #ccc;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: background 0.3s ease;
+    }
+
+    .toggle.active {
+      background: #1976d2;
+    }
+
+    .toggle::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 20px;
+      height: 20px;
+      background: white;
+      border-radius: 50%;
+      transition: transform 0.3s ease;
+    }
+
+    .toggle.active::after {
+      transform: translateX(24px);
+    }
+
+    .section-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: #666;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      margin-top: 16px;
+    }
+
+    .card-item {
+      background: white;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .card-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: #333;
+    }
+
+    .card-details {
+      font-size: 12px;
+      color: #666;
+      margin-top: 4px;
+    }
+
+    .no-cards {
+      text-align: center;
+      padding: 24px;
+      color: #666;
+      font-size: 14px;
+    }
+
+    .status {
+      text-align: center;
+      padding: 8px;
+      font-size: 12px;
+      color: #666;
+      background: #f0f0f0;
+    }
+
+    .status.connected {
+      background: #e8f5e9;
+      color: #2e7d32;
+    }
+
+    .status.disconnected {
+      background: #ffebee;
+      color: #c62828;
+    }
+
+    /* Recommendation styles */
+    #recommendation-section {
+      display: none;
+      margin-top: 8px;
+    }
+
+    .recommendation-card {
+      background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+
+    .rec-category {
+      font-size: 11px;
+      color: #388e3c;
+      text-transform: uppercase;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .rec-best-card {
+      font-size: 18px;
+      font-weight: 700;
+      color: #1b5e20;
+      margin-bottom: 4px;
+    }
+
+    .rec-rate {
+      font-size: 24px;
+      font-weight: 800;
+      color: #2e7d32;
+      margin-bottom: 8px;
+    }
+
+    .rec-explanation {
+      font-size: 13px;
+      color: #33691e;
+    }
+
+    .rec-current {
+      font-size: 12px;
+      color: #666;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid rgba(0,0,0,0.1);
+    }
+
+    .show-on-page-btn {
+      width: 100%;
+      padding: 10px;
+      background: #1976d2;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s ease;
+    }
+
+    .show-on-page-btn:hover {
+      background: #1565c0;
+    }
+
+    .cards-section {
+      max-height: 200px;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Card Optimizer</h1>
+  </div>
+
+  <div id="status" class="status">Checking...</div>
+
+  <div class="content">
+    <div id="recommendation-section"></div>
+
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Enable Extension</div>
+        <div class="setting-description">Show recommendations at checkout</div>
+      </div>
+      <div id="toggle-enabled" class="toggle active"></div>
+    </div>
+
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Notifications</div>
+        <div class="setting-description">Alert for better card options</div>
+      </div>
+      <div id="toggle-notifications" class="toggle active"></div>
+    </div>
+
+    <div class="cards-section">
+      <div class="section-title">Your Cards</div>
+      <div id="cards-list">
+        <div class="no-cards">Loading cards...</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="./main.ts" type="module"></script>
+</body>
+</html>
