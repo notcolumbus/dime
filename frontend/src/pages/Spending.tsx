@@ -69,18 +69,14 @@ interface MappedTransaction {
 
 const BACKEND_URL = 'http://localhost:5001'
 
-// Merchant configs with logos (from public folder)
+// Active merchant configs with logos (from active_merchants.csv)
 const MERCHANTS = [
-  { id: 19, name: 'DoorDash', logo: '/src/public/Doordash.svg', category: 'food delivery' },
-  { id: 44, name: 'Amazon', logo: '/src/public/Prime.svg', category: 'shopping' },
-  { id: 45, name: 'Walmart', logo: '/src/public/Apple.svg', category: 'groceries' },
-  { id: 29, name: 'Uber', logo: '/src/public/Uber.svg', category: 'transportation' },
-  { id: 38, name: 'Uber Eats', logo: '/src/public/UberEats.svg', category: 'food delivery' },
-  { id: 31, name: 'Grubhub', logo: '/src/public/Grubhub.svg', category: 'food delivery' },
-  { id: 30, name: 'Postmates', logo: '/src/public/Postmates.svg', category: 'food delivery' },
-  { id: 22, name: 'Spotify', logo: '/src/public/Spotify.svg', category: 'entertainment' },
-  { id: 23, name: 'HBO Max', logo: '/src/public/HBO.svg', category: 'entertainment' },
-  { id: 37, name: 'Lyft', logo: '/src/public/Lyft.svg', category: 'transportation' },
+  { id: 10, name: 'Uber', logo: '/src/public/Uber.svg', category: 'transportation' },
+  { id: 13, name: 'Spotify', logo: '/src/public/Spotify.svg', category: 'entertainment' },
+  { id: 19, name: 'DoorDash', logo: '/src/public/DoorDash.svg', category: 'food delivery' },
+  { id: 38, name: 'Grubhub', logo: '/src/public/Grubhub.svg', category: 'food delivery' },
+  { id: 44, name: 'Amazon', logo: '/src/public/Amazon.svg', category: 'shopping' },
+  { id: 60, name: 'Apple', logo: '/src/public/Apple.svg', category: 'shopping' },
 ]
 
 export default function Spending() {

@@ -1,4 +1,13 @@
 import { useState, useCallback, useEffect } from "react";
+import { MdAdd } from 'react-icons/md';
+
+// Import merchant logos - Only active merchants from active_merchants.csv
+import UberLogo from '../public/Uber.svg';
+import SpotifyLogo from '../public/Spotify.svg';
+import DoordashLogo from '../public/DoorDash.svg';
+import GrubhubLogo from '../public/Grubhub.svg';
+import AmazonLogo from '../public/Amazon.svg';
+import AppleLogo from '../public/Apple.svg';
 
 interface ConnectedMerchant {
     merchant_id: number;
@@ -9,6 +18,23 @@ interface ConnectedMerchant {
     last_transaction_at?: string;
 }
 
+interface MerchantInfo {
+    id: number;
+    name: string;
+    logo: string;
+    bgColor: string;
+}
+
+// Active merchants from active_merchants.csv - matched with Knot API IDs
+const MERCHANT_DATA: MerchantInfo[] = [
+    { id: 10, name: "Uber", logo: UberLogo, bgColor: "#000000" },
+    { id: 13, name: "Spotify", logo: SpotifyLogo, bgColor: "#1DB954" },
+    { id: 19, name: "DoorDash", logo: DoordashLogo, bgColor: "#FF3008" },
+    { id: 38, name: "Grubhub", logo: GrubhubLogo, bgColor: "#F63440" },
+    { id: 44, name: "Amazon", logo: AmazonLogo, bgColor: "#FF9900" },
+    { id: 60, name: "Apple", logo: AppleLogo, bgColor: "#000000" },
+];
+
 const PAYMENT_METHODS = [
     { value: "paypal", label: "PayPal", icon: "💳" },
     { value: "visa", label: "Visa", icon: "💳" },
@@ -17,26 +43,17 @@ const PAYMENT_METHODS = [
     { value: "discover", label: "Discover", icon: "💳" },
 ];
 
-const POPULAR_MERCHANTS = [
-    { id: 44, name: "Amazon" },
-    { id: 16, name: "Netflix" },
-    { id: 19, name: "DoorDash" },
-    { id: 40, name: "Uber" },
-    { id: 45, name: "Spotify" },
-    { id: 28, name: "Walmart" },
-    { id: 55, name: "Target" },
-];
-
 export default function Merchants() {
     const [clientId, setClientId] = useState("");
     const [merchantId, setMerchantId] = useState("");
-    const [userId, setUserId] = useState("aman");
+    const [userId] = useState("aman");
     const [product] = useState("transaction_link");
     const [sessionId, setSessionId] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [status, setStatus] = useState<string>("Ready");
     const [connectedMerchants, setConnectedMerchants] = useState<ConnectedMerchant[]>([]);
+    const [showAddModal, setShowAddModal] = useState(false);
 
     const PYTHON_SERVER_URL = "http://localhost:5001";
 
@@ -164,6 +181,7 @@ export default function Merchants() {
                         merchantName || `Merchant ${targetMerchantId}`
                     );
                     setLoading(false);
+                    setShowAddModal(false);
                 },
                 onError: (err: any) => {
                     console.error("Error:", err);
@@ -180,157 +198,314 @@ export default function Merchants() {
             setError(err instanceof Error ? err.message : "Failed to launch SDK");
             setLoading(false);
         }
-    }, [clientId, merchantId, userId, product]);
+    }, [clientId, merchantId, userId, product, saveMerchantToBackend]);
+
+    const isMerchantConnected = (id: number) => {
+        return connectedMerchants.some(cm => cm.merchant_id === id);
+    };
+
+    const handleMerchantClick = (merchant: MerchantInfo) => {
+        if (!isMerchantConnected(merchant.id)) {
+            launchKnotSDK(merchant.id, merchant.name);
+        }
+    };
 
     return (
-        <div style={{
-            fontFamily: "system-ui, -apple-system, sans-serif",
-            maxWidth: "600px",
-            margin: "20px auto",
-            padding: "24px",
-            backgroundColor: "#fff",
-            borderRadius: "8px",
-            boxShadow: "0 2px 8px rgba(0,0,0,0.1)"
-        }}>
-            <h2 style={{ fontSize: "20px", marginBottom: "20px", color: "#333" }}>
-                🔗 Merchants
-            </h2>
+        <div style={{ marginTop: '32px' }}>
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <h2 style={{ color: '#9ca3af', fontSize: '20px', margin: 0 }}>merchants</h2>
+                <button
+                    onClick={() => setShowAddModal(true)}
+                    style={{
+                        width: '32px',
+                        height: '32px',
+                        borderRadius: '8px',
+                        backgroundColor: '#2A2A2A',
+                        border: 'none',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#9ca3af',
+                        transition: 'background-color 0.2s',
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#3A3A3A'}
+                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2A2A2A'}
+                >
+                    <MdAdd size={20} />
+                </button>
+            </div>
 
-            {/* Connected Merchants */}
-            {connectedMerchants.length > 0 && (
-                <div style={{ marginBottom: "24px" }}>
-                    <h3 style={{ fontSize: "14px", color: "#666", marginBottom: "12px" }}>Connected Merchants</h3>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                        {connectedMerchants.map((merchant) => (
-                            <div key={merchant.merchant_id} style={{
-                                padding: "14px",
-                                backgroundColor: "#f8f9fa",
-                                borderRadius: "8px",
-                                borderLeft: "4px solid #28a745"
-                            }}>
-                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                    <div>
-                                        <div style={{ fontWeight: "600", color: "#333" }}>{merchant.name}</div>
-                                        <div style={{ fontSize: "12px", color: "#888" }}>ID: {merchant.merchant_id}</div>
-                                    </div>
-                                    <div style={{ textAlign: "right" }}>
-                                        <select
-                                            value={merchant.top_of_file_payment}
-                                            onChange={(e) => updatePaymentMethod(merchant.merchant_id, e.target.value)}
-                                            style={{
-                                                padding: "6px 10px",
-                                                fontSize: "12px",
-                                                border: "1px solid #ddd",
-                                                borderRadius: "4px",
-                                                backgroundColor: "#fff"
-                                            }}
-                                        >
-                                            {PAYMENT_METHODS.map((pm) => (
-                                                <option key={pm.value} value={pm.value}>{pm.label}</option>
-                                            ))}
-                                        </select>
-                                        <div style={{ fontSize: "10px", color: "#aaa", marginTop: "4px" }}>
-                                            Top of File
-                                        </div>
-                                    </div>
+            {/* Merchant Grid */}
+            <div style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: '16px',
+            }}>
+                {MERCHANT_DATA.map((merchant) => {
+                    const isConnected = isMerchantConnected(merchant.id);
+                    return (
+                        <div
+                            key={merchant.id}
+                            onClick={() => handleMerchantClick(merchant)}
+                            style={{
+                                width: '70px',
+                                height: '70px',
+                                borderRadius: '16px',
+                                backgroundColor: merchant.bgColor,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: isConnected ? 'default' : 'pointer',
+                                opacity: loading ? 0.6 : 1,
+                                position: 'relative',
+                                overflow: 'hidden',
+                                transition: 'transform 0.2s, box-shadow 0.2s',
+                                boxShadow: isConnected ? '0 0 0 3px #22c55e' : 'none',
+                            }}
+                            onMouseEnter={(e) => {
+                                if (!isConnected && !loading) {
+                                    e.currentTarget.style.transform = 'scale(1.05)';
+                                    e.currentTarget.style.boxShadow = '0 8px 25px rgba(0,0,0,0.3)';
+                                }
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.transform = 'scale(1)';
+                                e.currentTarget.style.boxShadow = isConnected ? '0 0 0 3px #22c55e' : 'none';
+                            }}
+                            title={merchant.name}
+                        >
+                            <img
+                                src={merchant.logo}
+                                alt={merchant.name}
+                                style={{
+                                    width: '100%',
+                                    height: '100%',
+                                    objectFit: 'cover',
+                                    borderRadius: '16px',
+                                }}
+                            />
+                            {isConnected && (
+                                <div style={{
+                                    position: 'absolute',
+                                    top: '4px',
+                                    right: '4px',
+                                    width: '18px',
+                                    height: '18px',
+                                    borderRadius: '50%',
+                                    backgroundColor: '#22c55e',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    color: '#fff',
+                                    fontSize: '12px',
+                                    fontWeight: 'bold',
+                                }}>
+                                    ✓
                                 </div>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+
+            {/* Add Merchant Modal */}
+            {showAddModal && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: 'rgba(0,0,0,0.7)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 1000,
+                }}
+                    onClick={() => setShowAddModal(false)}
+                >
+                    <div
+                        style={{
+                            backgroundColor: '#1a1a1a',
+                            borderRadius: '16px',
+                            padding: '24px',
+                            width: '90%',
+                            maxWidth: '500px',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <h3 style={{ color: '#fff', marginTop: 0, marginBottom: '20px', fontSize: '18px' }}>
+                            Add New Merchant
+                        </h3>
+
+                        {/* Available Merchants */}
+                        <div style={{ marginBottom: '24px' }}>
+                            <p style={{ color: '#9ca3af', fontSize: '14px', marginBottom: '12px' }}>
+                                Click to connect:
+                            </p>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
+                                {MERCHANT_DATA.filter(m => !isMerchantConnected(m.id)).map((merchant) => (
+                                    <button
+                                        key={merchant.id}
+                                        onClick={() => launchKnotSDK(merchant.id, merchant.name)}
+                                        disabled={loading}
+                                        style={{
+                                            padding: '10px 16px',
+                                            backgroundColor: '#2A2A2A',
+                                            border: 'none',
+                                            borderRadius: '8px',
+                                            color: '#fff',
+                                            cursor: loading ? 'not-allowed' : 'pointer',
+                                            opacity: loading ? 0.6 : 1,
+                                            fontSize: '14px',
+                                            transition: 'background-color 0.2s',
+                                        }}
+                                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#3A3A3A'}
+                                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2A2A2A'}
+                                    >
+                                        {merchant.name}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Custom Merchant ID Input */}
+                        <div style={{ marginBottom: '16px' }}>
+                            <p style={{ color: '#9ca3af', fontSize: '14px', marginBottom: '8px' }}>
+                                Or enter a custom Merchant ID:
+                            </p>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <input
+                                    type="text"
+                                    value={merchantId}
+                                    onChange={(e) => setMerchantId(e.target.value)}
+                                    placeholder="Merchant ID (e.g., 44)"
+                                    style={{
+                                        flex: 1,
+                                        padding: '12px 14px',
+                                        backgroundColor: '#2A2A2A',
+                                        border: 'none',
+                                        borderRadius: '10px',
+                                        color: '#fff',
+                                        fontSize: '14px',
+                                    }}
+                                />
+                                <button
+                                    onClick={() => launchKnotSDK()}
+                                    disabled={loading || !merchantId}
+                                    style={{
+                                        padding: '12px 24px',
+                                        backgroundColor: loading || !merchantId ? '#555' : '#8B5CF6',
+                                        color: '#fff',
+                                        border: 'none',
+                                        borderRadius: '10px',
+                                        fontWeight: '600',
+                                        cursor: loading || !merchantId ? 'not-allowed' : 'pointer',
+                                    }}
+                                >
+                                    {loading ? '...' : 'Connect'}
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Error Display */}
+                        {error && (
+                            <div style={{
+                                padding: '12px',
+                                backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                                border: '1px solid rgba(239, 68, 68, 0.3)',
+                                borderRadius: '8px',
+                                color: '#ef4444',
+                                fontSize: '13px',
+                                marginBottom: '16px',
+                            }}>
+                                {error}
+                            </div>
+                        )}
+
+                        {/* Status Display */}
+                        <div style={{
+                            padding: '12px',
+                            backgroundColor: '#2A2A2A',
+                            borderRadius: '8px',
+                            fontSize: '12px',
+                            color: '#9ca3af',
+                        }}>
+                            <strong>Status:</strong> {status}
+                            {sessionId && (
+                                <div style={{ marginTop: '4px', wordBreak: 'break-all', fontFamily: 'monospace', fontSize: '10px' }}>
+                                    Session: {sessionId.slice(0, 20)}...
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Close Button */}
+                        <button
+                            onClick={() => setShowAddModal(false)}
+                            style={{
+                                width: '100%',
+                                marginTop: '16px',
+                                padding: '12px',
+                                backgroundColor: 'transparent',
+                                border: '1px solid rgba(255,255,255,0.2)',
+                                borderRadius: '10px',
+                                color: '#9ca3af',
+                                cursor: 'pointer',
+                                fontSize: '14px',
+                            }}
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Connected Merchants Details (hidden, for payment selection) */}
+            {connectedMerchants.length > 0 && (
+                <div style={{ marginTop: '24px' }}>
+                    <p style={{ color: '#6b7280', fontSize: '12px', marginBottom: '12px' }}>
+                        Connected ({connectedMerchants.length}):
+                    </p>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                        {connectedMerchants.map((merchant) => (
+                            <div
+                                key={merchant.merchant_id}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    padding: '8px 12px',
+                                    backgroundColor: '#1a1a1a',
+                                    borderRadius: '8px',
+                                    border: '1px solid rgba(255,255,255,0.1)',
+                                }}
+                            >
+                                <span style={{ color: '#fff', fontSize: '13px' }}>{merchant.name}</span>
+                                <select
+                                    value={merchant.top_of_file_payment}
+                                    onChange={(e) => updatePaymentMethod(merchant.merchant_id, e.target.value)}
+                                    style={{
+                                        padding: '4px 8px',
+                                        fontSize: '11px',
+                                        backgroundColor: '#2A2A2A',
+                                        border: 'none',
+                                        borderRadius: '4px',
+                                        color: '#9ca3af',
+                                        cursor: 'pointer',
+                                    }}
+                                >
+                                    {PAYMENT_METHODS.map((pm) => (
+                                        <option key={pm.value} value={pm.value}>{pm.label}</option>
+                                    ))}
+                                </select>
                             </div>
                         ))}
                     </div>
                 </div>
             )}
-
-            {/* Quick Connect Popular Merchants */}
-            <div style={{ marginBottom: "24px" }}>
-                <h3 style={{ fontSize: "14px", color: "#666", marginBottom: "12px" }}>Quick Connect</h3>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-                    {POPULAR_MERCHANTS.map((m) => (
-                        <button
-                            key={m.id}
-                            onClick={() => launchKnotSDK(m.id, m.name)}
-                            disabled={loading || connectedMerchants.some(cm => cm.merchant_id === m.id)}
-                            style={{
-                                padding: "8px 14px",
-                                fontSize: "13px",
-                                backgroundColor: connectedMerchants.some(cm => cm.merchant_id === m.id) ? "#e9ecef" : "#007bff",
-                                color: connectedMerchants.some(cm => cm.merchant_id === m.id) ? "#666" : "#fff",
-                                border: "none",
-                                borderRadius: "20px",
-                                cursor: loading || connectedMerchants.some(cm => cm.merchant_id === m.id) ? "not-allowed" : "pointer",
-                                opacity: loading ? 0.6 : 1
-                            }}
-                        >
-                            {connectedMerchants.some(cm => cm.merchant_id === m.id) ? "✓ " : ""}{m.name}
-                        </button>
-                    ))}
-                </div>
-            </div>
-
-            {/* Custom Merchant ID */}
-            <div style={{ marginBottom: "16px" }}>
-                <h3 style={{ fontSize: "14px", color: "#666", marginBottom: "8px" }}>Or Enter Merchant ID</h3>
-                <div style={{ display: "flex", gap: "8px" }}>
-                    <input
-                        type="text"
-                        value={merchantId}
-                        onChange={(e) => setMerchantId(e.target.value)}
-                        placeholder="Merchant ID (e.g., 44)"
-                        style={{
-                            flex: 1,
-                            padding: "10px 12px",
-                            fontSize: "14px",
-                            border: "1px solid #ddd",
-                            borderRadius: "6px"
-                        }}
-                    />
-                    <button
-                        onClick={() => launchKnotSDK()}
-                        disabled={loading || !clientId || !merchantId}
-                        style={{
-                            padding: "10px 20px",
-                            fontSize: "14px",
-                            fontWeight: "600",
-                            color: "#fff",
-                            backgroundColor: loading || !clientId || !merchantId ? "#999" : "#007bff",
-                            border: "none",
-                            borderRadius: "6px",
-                            cursor: loading || !clientId || !merchantId ? "not-allowed" : "pointer"
-                        }}
-                    >
-                        {loading ? "..." : "Connect"}
-                    </button>
-                </div>
-            </div>
-
-            {error && (
-                <div style={{
-                    marginTop: "16px",
-                    padding: "12px",
-                    backgroundColor: "#fee",
-                    border: "1px solid #fcc",
-                    borderRadius: "6px",
-                    color: "#c00",
-                    fontSize: "13px"
-                }}>
-                    {error}
-                </div>
-            )}
-
-            <div style={{
-                marginTop: "16px",
-                padding: "12px",
-                backgroundColor: "#f8f9fa",
-                borderRadius: "6px",
-                fontSize: "12px",
-                color: "#666"
-            }}>
-                <strong>Status:</strong> {status}
-                {sessionId && (
-                    <div style={{ marginTop: "4px", wordBreak: "break-all", fontFamily: "monospace", fontSize: "10px" }}>
-                        Session: {sessionId.slice(0, 20)}...
-                    </div>
-                )}
-            </div>
         </div>
     );
 }

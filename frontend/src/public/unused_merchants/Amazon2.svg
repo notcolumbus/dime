@@ -1,0 +1,8 @@
+<svg width="240" height="240" viewBox="0 0 240 240" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="240" height="240" rx="16" fill="#232F3E"/>
+  <!-- Amazon text -->
+  <text x="120" y="115" font-family="Amazon Ember, Arial, sans-serif" font-size="42" font-weight="bold" fill="white" text-anchor="middle">amazon</text>
+  <!-- Amazon smile/arrow - properly centered -->
+  <path d="M60 140 Q120 170 180 140" stroke="#FF9900" stroke-width="8" fill="none" stroke-linecap="round"/>
+  <path d="M170 130 L180 140 L170 150" stroke="#FF9900" stroke-width="8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

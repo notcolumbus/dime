@@ -3,7 +3,6 @@ import Merchants from '../components/merchants'
 import { MdEdit, MdEmail, MdPhone, MdLanguage, MdClose } from 'react-icons/md'
 import pfpImage from '../public/pfp.jpeg'
 
-
 export default function Settings() {
   return (
     <div style={{ width: '100%' }}>
@@ -59,7 +58,7 @@ export default function Settings() {
                     <label style={{ color: '#6b7280', fontSize: '11px', marginBottom: '6px', display: 'block' }}>first name</label>
                     <input
                       type="text"
-                      defaultValue="Shiva"
+                      defaultValue="Joe"
                       style={{
                         width: '100%',
                         padding: '10px 14px',
@@ -76,7 +75,7 @@ export default function Settings() {
                     <label style={{ color: '#6b7280', fontSize: '11px', marginBottom: '6px', display: 'block' }}>last name name</label>
                     <input
                       type="text"
-                      defaultValue="Anwar"
+                      defaultValue="Do"
                       style={{
                         width: '100%',
                         padding: '10px 14px',
@@ -107,7 +106,7 @@ export default function Settings() {
                     />
                     <input
                       type="email"
-                      defaultValue="joedo2910@vt.edu"
+                      defaultValue="joe.do@vt.edu"
                       style={{
                         width: '100%',
                         padding: '10px 14px 10px 42px',
@@ -138,7 +137,7 @@ export default function Settings() {
                     />
                     <input
                       type="tel"
-                      defaultValue="+1 (703) 206-8555"
+                      defaultValue="+1 (555) 123 - 4567"
                       style={{
                         width: '100%',
                         padding: '10px 14px 10px 42px',
@@ -195,7 +194,6 @@ export default function Settings() {
                 </div>
               </div>
             </div>
-            {/* End of profile container */}
           </div>
         </div>
 
@@ -300,15 +298,11 @@ export default function Settings() {
                 <span style={{ color: '#6b7280', fontSize: '11px' }}>at least 1 number</span>
               </div>
             </div>
-            {/* End of security container */}
           </div>
         </div>
       </div>
 
-      {/* Divider */}
-      <div style={{ width: '100%', height: '1px', backgroundColor: '#333', marginTop: '32px' }} />
-
-      {/* Merchants Section */}
+      {/* Merchants Section - Connected to Knot API */}
       <Merchants />
 
       {/* Bottom Spacer */}

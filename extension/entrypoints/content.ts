@@ -17,34 +17,13 @@ interface BackendCard {
 
 export default defineContentScript({
   matches: [
-    '*://*.amazon.com/*',
-    '*://*.walmart.com/*',
-    '*://*.target.com/*',
-    '*://*.bestbuy.com/*',
-    '*://*.macys.com/*',
-    '*://*.chewy.com/*',
-    '*://*.netflix.com/*',
-    '*://*.hulu.com/*',
-    '*://*.disneyplus.com/*',
-    '*://*.max.com/*',
-    '*://*.peacocktv.com/*',
-    '*://tv.youtube.com/*',
-    '*://*.primevideo.com/*',
-    '*://*.crunchyroll.com/*',
-    '*://*.spotify.com/*',
-    '*://*.music.amazon.com/*',
-    '*://*.siriusxm.com/*',
-    '*://*.starz.com/*',
-    '*://*.audible.com/*',
-    '*://*.doordash.com/*',
-    '*://*.ubereats.com/*',
-    '*://*.grubhub.com/*',
-    '*://*.postmates.com/*',
-    '*://*.trycaviar.com/*',
-    '*://*.instacart.com/*',
-    '*://*.uber.com/*',
-    '*://*.lyft.com/*',
-    '*://*.bk.com/*',
+    // Active merchants from active_merchants.csv
+    '*://*.uber.com/*',           // ID: 10 - Uber
+    '*://*.spotify.com/*',        // ID: 13 - Spotify
+    '*://*.doordash.com/*',       // ID: 19 - DoorDash
+    '*://*.grubhub.com/*',        // ID: 38 - Grubhub
+    '*://*.amazon.com/*',         // ID: 44 - Amazon
+    '*://*.apple.com/*',          // ID: 60 - Apple
   ],
   main() {
     console.log('Dime content script loaded');

@@ -3,24 +3,22 @@ import Header from '../components/Header'
 import { MdChevronLeft, MdChevronRight, MdAdd, MdClose } from 'react-icons/md'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 
-// Import SVG icons
-import PrimeIcon from '../public/Prime.svg'
-import HBOIcon from '../public/HBO.svg'
-import UberEatsIcon from '../public/UberEats.svg'
-import CoinbaseIcon from '../public/Coinbase.svg'
+// Import SVG icons - Active merchants only
+import UberIcon from '../public/Uber.svg'
 import SpotifyIcon from '../public/Spotify.svg'
+import DoordashIcon from '../public/DoorDash.svg'
 import GrubhubIcon from '../public/Grubhub.svg'
-import LyftIcon from '../public/Lyft.svg'
+import AmazonIcon from '../public/Amazon.svg'
+import AppleIcon from '../public/Apple.svg'
 
-// Icon mapping for dynamic transactions
+// Icon mapping for dynamic transactions - Active merchants only
 const MERCHANT_ICONS: Record<string, string> = {
-  'Prime Video': PrimeIcon,
-  'HBO Max': HBOIcon,
-  'Lyft': LyftIcon,
-  'Uber Eats': UberEatsIcon,
-  'Coinbase': CoinbaseIcon,
+  'Uber': UberIcon,
   'Spotify': SpotifyIcon,
+  'DoorDash': DoordashIcon,
   'Grubhub': GrubhubIcon,
+  'Amazon': AmazonIcon,
+  'Apple': AppleIcon,
 }
 
 // Types for dynamic data
@@ -892,16 +890,15 @@ export default function Home() {
               </button>
             </div>
 
-            {/* Merchant Icons */}
+            {/* Merchant Icons - Active merchants only */}
             <div style={{ display: 'flex', gap: '12px', marginBottom: '32px', flexWrap: 'wrap' }}>
               {[
-                { name: 'Prime Video', icon: PrimeIcon },
-                { name: 'HBO Max', icon: HBOIcon },
-                { name: 'Lyft', icon: LyftIcon },
-                { name: 'Uber Eats', icon: UberEatsIcon },
-                { name: 'Coinbase', icon: CoinbaseIcon },
+                { name: 'Uber', icon: UberIcon },
                 { name: 'Spotify', icon: SpotifyIcon },
+                { name: 'DoorDash', icon: DoordashIcon },
                 { name: 'Grubhub', icon: GrubhubIcon },
+                { name: 'Amazon', icon: AmazonIcon },
+                { name: 'Apple', icon: AppleIcon },
               ].map((merchant, i) => (
                 <div
                   key={i}
