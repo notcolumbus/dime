@@ -66,7 +66,7 @@ const initialCards: CardData[] = []
 const initialRecentTransactions: Transaction[] = []
 
 const MERCHANTS_MOCK: Record<string, { name: string, icon: string }[]> = {
-  visa: [{ name: 'Amazon', icon: PrimeIcon }, { name: 'Whole Foods', icon: PrimeIcon }],
+  visa: [{ name: 'Amazon', icon: PrimeIcon }],
   paypal: [{ name: 'DoorDash', icon: DoordashIcon }],
   discover: [],
   mastercard: [{ name: 'Spotify', icon: SpotifyIcon }, { name: 'Netflix', icon: HBOIcon }],
@@ -433,7 +433,8 @@ export default function Home() {
     const match = Object.keys(MERCHANT_ICONS).find(key =>
       lowerName.includes(key.toLowerCase()) || key.toLowerCase().includes(lowerName)
     )
-    return match ? MERCHANT_ICONS[match] : SpotifyIcon
+    // Default to building icon for unknown merchants
+    return match ? MERCHANT_ICONS[match] : '/src/public/Building_Icon.svg'
   }
 
   return (
@@ -888,7 +889,7 @@ export default function Home() {
           <div style={{ flex: 1, borderTop: '1px solid #333', paddingTop: '20px', paddingLeft: '40px' }}>
             {/* Top Merchants */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h2 style={{ fontSize: '24px', color: 'white', opacity: 0.6, margin: 0 }}>this month's top</h2>
+              <h2 style={{ fontSize: '24px', color: 'white', opacity: 0.6, margin: 0 }}>top of file on</h2>
               <button
                 style={{
                   padding: '8px 16px',

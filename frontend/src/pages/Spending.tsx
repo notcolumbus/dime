@@ -133,8 +133,9 @@ export default function Spending() {
           methods.add(pmDisplay)
         }
 
-        // Find logo
+        // Find logo - use default icon if merchant not in our list
         const merchantConfig = MERCHANTS.find(m => m.id === tx.merchant_id)
+        const defaultLogo = '/src/public/Avg_Daily_Spend_Icon.svg'
 
         return {
           id: tx.id,
@@ -149,7 +150,7 @@ export default function Spending() {
           time,
           points: tx.points_earned || 0,
           amount: -Math.abs(Number(tx.total_amount || 0)),
-          logo: merchantConfig?.logo || '/src/public/Avg_Daily_Spend_Icon.svg',
+          logo: merchantConfig ? merchantConfig.logo : defaultLogo,
           productImage: null,
           rawData: tx.raw_json || tx
         }

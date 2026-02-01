@@ -1,7 +1,6 @@
 import './App.css'
 import Transactions from './components/transactions'
 import Merchants from './components/merchants'
-import TopOfFile from './components/TopOfFile'
 import Cashflow from './components/Cashflow'
 import Alerts from './components/Alerts'
 import Cards from './components/Cards'
