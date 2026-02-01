@@ -15,6 +15,8 @@ export default function Sidebar() {
       position: 'fixed',
       left: 0,
       top: 0,
+      borderRight: '1px solid #444',
+      zIndex: 200,
     }}>
       {/* Logo */}
       <div style={{ marginBottom: '12px', marginTop: '-8px' }}>
