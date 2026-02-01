@@ -1,6 +1,7 @@
 import './App.css'
 import { Routes, Route } from 'react-router-dom'
 import Sidebar from './components/Sidebar'
+import Footer from './components/Footer'
 import Home from './pages/Home'
 import Spending from './pages/Spending'
 import Analytics from './pages/Analytics'
@@ -23,6 +24,7 @@ function Dashboard() {
           <Route path="/information" element={<Information />} />
         </Routes>
       </div>
+      <Footer />
     </div>
   )
 }
