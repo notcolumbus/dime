@@ -90,7 +90,7 @@ export default function Credit() {
           id: card.card_id,
           category: 'everyday use', // Default category for now
           cardType: (card.card_type || 'visa').toLowerCase(),
-          cardName: card.cardholder_name || card.nickname || 'Aman Agarwal',
+          cardName: card.cardholder || card.nickname || 'Aman Agarwal',
           // Mock financial data (since AP doesn't provide it yet)
           availableCredit: 9281.56,
           expiryDate: card.expiry || '12/28',
