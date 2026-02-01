@@ -1,10 +1,7 @@
 import './App.css'
 import Transactions from './components/transactions'
 import Merchants from './components/merchants'
-import Cashflow from './components/Cashflow'
-import Alerts from './components/Alerts'
 import Cards from './components/Cards'
-import OptimalCard from './components/OptimalCard'
 import Chatbot from './components/Chatbot'
 
 function App() {
@@ -27,7 +24,6 @@ function App() {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
         </div>
 
-        {/* Floating Chatbot */}
         <Chatbot />
       </div>
     </div>

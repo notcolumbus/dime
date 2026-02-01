@@ -1,11 +1,3 @@
-"""
-Dime Backend - Main Application
-
-A financial dashboard backend integrating:
-- Knot API for transaction syncing
-- Snowflake for data persistence and AI (Cortex)
-- Card and merchant management
-"""
 
 from flask import Flask, jsonify
 from flask_cors import CORS

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Header from '../components/Header'
 import { MdSearch, MdTrendingUp, MdEdit, MdKeyboardArrowDown } from 'react-icons/md'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, BarChart, Bar, Cell } from 'recharts'
@@ -21,6 +21,8 @@ interface CategoryData {
   name: string
   color: string
   percentage: number
+  total_spent?: number
+  transaction_count?: number
 }
 
 interface TrendData {
@@ -59,15 +61,20 @@ const statsData: StatCard[] = [
   { icon: 'clock', label: 'avg daily spend', value: '$ 234', trend: '4.7%', trendUp: true },
 ]
 
-const categoryData: CategoryData[] = [
-  { name: 'dining', color: '#a855f7', percentage: 25 },
-  { name: 'entertainment', color: '#ec4899', percentage: 20 },
-  { name: 'transportation', color: '#f97316', percentage: 15 },
-  { name: 'bills', color: '#22c55e', percentage: 15 },
-  { name: 'groceries', color: '#8b5cf6', percentage: 12 },
-  { name: 'shopping', color: '#10b981', percentage: 8 },
-  { name: 'entertainment', color: '#ef4444', percentage: 5 },
-]
+// Category colors mapping
+const CATEGORY_COLORS: Record<string, string> = {
+  food_dining: '#ef4444',
+  groceries: '#22c55e',
+  gas_auto: '#f97316',
+  shopping: '#a855f7',
+  travel: '#3b82f6',
+  entertainment: '#ec4899',
+  healthcare: '#8b5cf6',
+  services: '#10b981',
+  home: '#f59e0b',
+  other: '#6b7280',
+  uncategorized: '#4b5563'
+}
 
 const utilizationCategories = [
   { name: 'dining & commute', color: '#ef4444' },
@@ -103,6 +110,44 @@ export default function Analytics() {
   const [trendData, setTrendData] = useState<TrendData[]>([])
   const [cardPerformanceData, setCardPerformanceData] = useState<CardPerformanceData[]>([])
   const [monthlyPatternData, setMonthlyPatternData] = useState<MonthlyPatternData[]>([])
+  const [categoryData, setCategoryData] = useState<CategoryData[]>([])
+  const [categoryLoaded, setCategoryLoaded] = useState(false)
+  const categoryFetched = useRef(false)
+
+  // Fetch category spending data
+  useEffect(() => {
+    if (categoryFetched.current) return
+    categoryFetched.current = true
+    
+    const fetchCategoryData = async () => {
+      const API_URL = 'http://localhost:5001/api'
+      try {
+        const res = await fetch(`${API_URL}/spending-by-category?user_id=aman&days=365`)
+        const data = await res.json()
+        
+        const categories = data.categories || []
+        // Filter out zero-spent categories
+        const validCategories = categories.filter((cat: any) => cat.total_spent > 0)
+        const totalSpent = validCategories.reduce((sum: number, cat: any) => sum + cat.total_spent, 0)
+        
+        const mapped: CategoryData[] = validCategories.map((cat: any) => ({
+          name: cat.category.replace('_', ' '),
+          color: CATEGORY_COLORS[cat.category] || '#6b7280',
+          percentage: totalSpent > 0 ? (cat.total_spent / totalSpent) * 100 : 0,
+          total_spent: cat.total_spent,
+          transaction_count: cat.transaction_count
+        }))
+        
+        setCategoryData(mapped)
+        setCategoryLoaded(true)
+      } catch (err) {
+        console.error('Failed to fetch category data:', err)
+        setCategoryLoaded(true)
+      }
+    }
+    
+    fetchCategoryData()
+  }, [])
 
   // Fetch spending and income trends on mount
   useEffect(() => {
@@ -254,26 +299,34 @@ export default function Analytics() {
 
   // Generate category donut segments
   const generateCategorySegments = () => {
-    let offset = 0
-    return categoryData.map((cat, index) => {
-      const segmentLength = (cat.percentage / 100) * circumference
-      const segment = (
+    const segments: JSX.Element[] = []
+    let cumulativePercent = 0
+    const r = 40
+    const circ = 2 * Math.PI * r
+    
+    categoryData.forEach((cat, index) => {
+      const segmentPercent = cat.percentage
+      const segmentLength = (segmentPercent / 100) * circ
+      const dashOffset = (cumulativePercent / 100) * circ
+      
+      segments.push(
         <circle
           key={index}
           cx="50"
           cy="50"
-          r="42"
+          r={r}
           fill="none"
           stroke={cat.color}
-          strokeWidth="12"
-          strokeDasharray={`${segmentLength} ${circumference}`}
-          strokeDashoffset={-offset}
+          strokeWidth="16"
+          strokeDasharray={`${segmentLength} ${circ - segmentLength}`}
+          strokeDashoffset={-dashOffset}
           transform="rotate(-90 50 50)"
         />
       )
-      offset += segmentLength
-      return segment
+      cumulativePercent += segmentPercent
     })
+    
+    return segments
   }
 
   return (
@@ -546,32 +599,46 @@ export default function Analytics() {
             }}>
               by category
             </p>
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
-              <svg width="120" height="120" viewBox="0 0 100 100">
-                <circle cx="50" cy="50" r="42" fill="none" stroke="#252525" strokeWidth="12" />
-                {generateCategorySegments()}
-              </svg>
-            </div>
-            {/* Legend */}
-            <div style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: '8px',
-              fontSize: '11px',
-              color: '#888',
-            }}>
-              {categoryData.map((cat, index) => (
-                <div key={index} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <div style={{
-                    width: '8px',
-                    height: '8px',
-                    borderRadius: '50%',
-                    backgroundColor: cat.color,
-                  }} />
-                  <span>{cat.name}</span>
+            {!categoryLoaded ? (
+              <p style={{ color: '#6b7280', textAlign: 'center', padding: '40px 0', fontSize: '12px' }}>
+                Loading...
+              </p>
+            ) : categoryData.length === 0 ? (
+              <p style={{ color: '#6b7280', textAlign: 'center', padding: '40px 0', fontSize: '12px' }}>
+                No category data
+              </p>
+            ) : (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '20px' }}>
+                  <svg width="140" height="140" viewBox="0 0 100 100">
+                    <circle cx="50" cy="50" r="40" fill="none" stroke="#252525" strokeWidth="16" />
+                    {generateCategorySegments()}
+                  </svg>
                 </div>
-              ))}
-            </div>
+                {/* Legend */}
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px',
+                  fontSize: '12px',
+                }}>
+                  {categoryData.map((cat, index) => (
+                    <div key={index} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{
+                          width: '10px',
+                          height: '10px',
+                          borderRadius: '50%',
+                          backgroundColor: cat.color,
+                        }} />
+                        <span style={{ color: '#ccc' }}>{cat.name}</span>
+                      </div>
+                      <span style={{ color: '#888', fontWeight: '500' }}>{cat.percentage.toFixed(0)}%</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </div>
 
