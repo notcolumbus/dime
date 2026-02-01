@@ -140,7 +140,7 @@ export default function Spending() {
           id: tx.id,
           merchant: tx.merchant_name || tx.merchant?.name || 'Unknown',
           merchantId: tx.merchant_id || tx.merchant?.id,
-          category: tx.spend_category || 'uncategorized',
+          category: tx.category || tx.spend_category || 'uncategorized',
           paymentMethod: pmDisplay,
           paymentBrand: pmBrand,
           paymentLast4: pmLast4,

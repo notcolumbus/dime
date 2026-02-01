@@ -429,14 +429,17 @@ class SnowflakeDB:
         return {"success": True, "id": tx_id, "payment_method": payment_method}
     
     def save_transactions_batch(self, transactions: List[Dict], user_id: str, merchant_id: int, merchant_name: str) -> Dict[str, Any]:
-        """Save multiple transactions with a single commit"""
+        """Save multiple transactions with a single commit and auto-categorize"""
         saved = 0
+        categorized = 0
         conn, cursor = self._get_connection()
         
         try:
+            tx_ids = []
             for tx in transactions:
                 try:
-                    self.save_transaction(tx, user_id, merchant_id, merchant_name, commit=False)
+                    result = self.save_transaction(tx, user_id, merchant_id, merchant_name, commit=False)
+                    tx_ids.append(result["id"])
                     saved += 1
                 except Exception as e:
                     print(f"Error saving transaction {tx.get('id')}: {e}")
@@ -445,6 +448,20 @@ class SnowflakeDB:
             
             # Commit all changes at once
             conn.commit()
+            
+            # Auto-categorize newly saved transactions
+            print(f"🤖 Auto-categorizing {len(tx_ids)} new transactions...")
+            for tx_id in tx_ids:
+                try:
+                    result = self.categorize_transaction_ai(tx_id)
+                    if result.get("spend_category"):
+                        categorized += 1
+                except Exception as e:
+                    print(f"⚠️  Categorization skipped for {tx_id}: {e}")
+                    continue
+            
+            print(f"✅ Categorized {categorized}/{len(tx_ids)} transactions")
+            
         except Exception as e:
             print(f"Error committing batch: {e}")
             # Rollback to release locks
@@ -454,7 +471,7 @@ class SnowflakeDB:
                 pass
             raise e
             
-        return {"success": True, "saved": saved, "total": len(transactions)}
+        return {"success": True, "saved": saved, "categorized": categorized, "total": len(transactions)}
     
     def get_transactions(self, user_id: str, merchant_id: Optional[int] = None, limit: int = 50, card_id: Optional[str] = None, card_type: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get transactions from Snowflake with fallback card_type filtering"""
