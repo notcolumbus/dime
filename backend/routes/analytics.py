@@ -61,3 +61,147 @@ def alerts():
     # - Upcoming bills
     # - Category budget warnings
     return jsonify({"alerts": []})
+
+
+@analytics_bp.route("/categorize/<tx_id>", methods=["POST"])
+def categorize_transaction(tx_id):
+    """AI-categorize a single transaction"""
+    db = get_snowflake()
+    if not db:
+        return jsonify({"error": "Snowflake not configured"}), 500
+    
+    try:
+        result = db.categorize_transaction_ai(tx_id)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@analytics_bp.route("/categorize-all", methods=["POST"])
+def categorize_all():
+    """Batch categorize all uncategorized transactions"""
+    db = get_snowflake()
+    if not db:
+        return jsonify({"error": "Snowflake not configured"}), 500
+    
+    data = request.json or {}
+    user_id = data.get("user_id")
+    
+    try:
+        result = db.process_all_uncategorized(user_id)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@analytics_bp.route("/calculate-points/<tx_id>", methods=["POST"])
+def calculate_points(tx_id):
+    """Calculate points for a transaction based on card benefits"""
+    db = get_snowflake()
+    if not db:
+        return jsonify({"error": "Snowflake not configured"}), 500
+    
+    data = request.json or {}
+    card_id = data.get("card_id")
+    
+    try:
+        result = db.calculate_points(tx_id, card_id)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@analytics_bp.route("/spending-by-category", methods=["GET", "POST"])
+def spending_by_category():
+    """Get spending breakdown by AI-categorized spend_category"""
+    db = get_snowflake()
+    if not db:
+        return jsonify({"error": "Snowflake not configured", "categories": []}), 200
+    
+    data = request.json if request.method == "POST" else {}
+    user_id = data.get("user_id", request.args.get("user_id", "test_user"))
+    days = int(data.get("days", request.args.get("days", 30)))
+    
+    try:
+        # Uses the new spend_category field
+        conn, cursor = db._get_connection()
+        cursor.execute("""
+            SELECT 
+                COALESCE(spend_category, 'uncategorized') AS category,
+                COUNT(*) AS transaction_count,
+                SUM(total_amount) AS total_spent,
+                SUM(points_earned) AS total_points
+            FROM TRANSACTIONS
+            WHERE user_id = %s
+              AND datetime >= DATEADD(day, -%s, CURRENT_TIMESTAMP())
+            GROUP BY spend_category
+            ORDER BY total_spent DESC
+        """, (user_id, days))
+        
+        rows = cursor.fetchall()
+        categories = []
+        for row in rows:
+            categories.append({
+                "category": row[0],
+                "transaction_count": row[1],
+                "total_spent": float(row[2]) if row[2] else 0,
+                "total_points": int(row[3]) if row[3] else 0
+            })
+        
+        return jsonify({
+            "user_id": user_id,
+            "days": days,
+            "categories": categories
+        })
+    except Exception as e:
+        return jsonify({"error": str(e), "categories": []}), 200
+
+
+@analytics_bp.route("/backfill-payment-methods", methods=["POST"])
+def backfill_payment_methods():
+    """Backfill payment_method from raw transaction data"""
+    db = get_snowflake()
+    if not db:
+        return jsonify({"error": "Snowflake not configured"}), 500
+    
+    try:
+        result = db.backfill_payment_methods()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@analytics_bp.route("/recalculate-points", methods=["POST"])
+def recalculate_points():
+    """Recalculate all points (PayPal = 0)"""
+    db = get_snowflake()
+    if not db:
+        return jsonify({"error": "Snowflake not configured"}), 500
+    
+    try:
+        result = db.recalculate_all_points()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@analytics_bp.route("/transactions", methods=["GET"])
+def get_transactions():
+    """Get raw transactions list from Snowflake"""
+    db = get_snowflake()
+    if not db:
+        return jsonify({"error": "Snowflake not configured", "transactions": []}), 500
+    
+    user_id = request.args.get("user_id", "aman")
+    merchant_id = request.args.get("merchant_id")
+    limit = int(request.args.get("limit", 100))
+    
+    try:
+        if merchant_id:
+            merchant_id = int(merchant_id)
+            
+        transactions = db.get_transactions(user_id, merchant_id, limit)
+        return jsonify({"transactions": transactions})
+    except Exception as e:
+        return jsonify({"error": str(e), "transactions": []}), 500
+

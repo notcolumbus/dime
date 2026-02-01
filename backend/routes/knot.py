@@ -67,59 +67,77 @@ def create_session():
 
 @knot_bp.route("/transactions", methods=["POST"])
 def sync_transactions():
-    """Sync transactions from Knot API for a user and merchant"""
+    """Sync transactions from Knot API for a user and merchant (fetches ALL pages)"""
     data = request.json
     user_id = data.get("user_id") or "aman"
     merchant_id = data.get("merchant_id")
-    cursor = data.get("cursor")
     
     url = "https://production.knotapi.com/transactions/sync"
-    payload = {
-        "external_user_id": user_id,
-        "merchant_id": int(merchant_id)
-    }
-    if cursor:
-        payload["cursor"] = cursor
+    all_transactions = []
+    current_cursor = None
+    has_more = True
+    page_count = 0
     
     try:
-        response = requests.post(
-            url,
-            json=payload,
-            auth=(KNOT_CLIENT_ID, KNOT_CLIENT_SECRET),
-            headers={"Content-Type": "application/json"}
-        )
-        
-        # Check if response has content
-        if not response.text:
-            return jsonify({"error": "Empty response from Knot API", "transactions": []}), 502
-        
-        # Try to parse JSON
-        try:
+        while has_more and page_count < 20:  # Safety limit of 20 pages (2000 txs)
+            payload = {
+                "external_user_id": user_id,
+                "merchant_id": int(merchant_id),
+                "limit": 100  # Max limit per page
+            }
+            if current_cursor:
+                payload["cursor"] = current_cursor
+            
+            response = requests.post(
+                url,
+                json=payload,
+                auth=(KNOT_CLIENT_ID, KNOT_CLIENT_SECRET),
+                headers={"Content-Type": "application/json"}
+            )
+            
+            if not response.ok:
+                print(f"Knot sync error: {response.text}")
+                break
+                
             data = response.json()
-        except Exception as parse_error:
-            return jsonify({
-                "error": f"Invalid JSON from Knot: {str(parse_error)}", 
-                "raw": response.text[:200],
-                "transactions": []
-            }), 502
+            transactions = data.get("transactions", [])
+            
+            if not transactions:
+                has_more = False
+                break
+                
+            all_transactions.extend(transactions)
+            
+            # Update cursor for next page
+            current_cursor = data.get("next_cursor")
+            has_more = bool(current_cursor)
+            page_count += 1
+            print(f"Synced page {page_count}: {len(transactions)} transactions")
         
-        # Save transactions to Snowflake if available
+        # Save all authentic transactions to Snowflake
         db = get_snowflake()
-        if db and response.ok and "transactions" in data:
+        saved_count = 0
+        if db and all_transactions:
             try:
+                # Use merchant info from last response
                 merchant_info = data.get("merchant", {})
-                db.save_transactions_batch(
-                    data["transactions"],
+                result = db.save_transactions_batch(
+                    all_transactions,
                     user_id,
                     int(merchant_id),
                     merchant_info.get("name", "Unknown")
                 )
+                saved_count = result.get("saved", 0)
             except Exception as e:
                 print(f"Failed to save to Snowflake: {e}")
         
-        return jsonify(data), response.status_code
-    except requests.exceptions.RequestException as e:
-        return jsonify({"error": f"Network error: {str(e)}", "transactions": []}), 503
+        return jsonify({
+            "success": True, 
+            "total_synced": len(all_transactions),
+            "saved_to_db": saved_count,
+            "pages": page_count
+        })
+
     except Exception as e:
         return jsonify({"error": str(e), "transactions": []}), 500
 

@@ -24,18 +24,32 @@ SNOWFLAKE_CONFIG = {
     "warehouse": os.getenv("SNOWFLAKE_WAREHOUSE", "COMPUTE_WH"),
 }
 
-# Transaction categories for classification
+# Condensed spend categories for AI classification
+SPEND_CATEGORIES = [
+    "food_dining",      # Restaurants, food delivery, coffee, DoorDash, UberEats
+    "groceries",        # Supermarkets, grocery stores, farmers markets
+    "gas_auto",         # Gas stations, automotive services, car maintenance
+    "shopping",         # Retail, department stores, Amazon, Walmart, online merchants
+    "travel",           # Airlines, hotels, rental cars, rideshare (Uber, Lyft)
+    "entertainment",    # Streaming, movies, concerts, gaming, subscriptions
+    "healthcare",       # Pharmacies, doctors, hospitals, medical supplies
+    "services",         # Government, education, utilities, professional services
+    "home",             # Home improvement, furniture, appliances, repairs
+    "other"             # Uncategorized transactions
+]
+
+# Legacy categories for backward compatibility with vector embeddings
 CATEGORIES = [
-    ("groceries", "Grocery store food shopping supermarket produce vegetables fruits meat dairy"),
-    ("dining", "Restaurant food delivery takeout cafe coffee shop bar dining eating out"),
-    ("travel", "Airline hotel flight booking vacation trip travel transportation"),
-    ("gas", "Gas station fuel petrol gasoline car vehicle automotive"),
-    ("streaming", "Netflix Hulu Disney streaming subscription entertainment video music"),
-    ("shopping", "Amazon retail online shopping ecommerce clothes electronics"),
-    ("utilities", "Electric water gas bill utility payment internet phone"),
-    ("healthcare", "Pharmacy doctor hospital medical prescription health insurance"),
-    ("entertainment", "Movies concerts events tickets games sports recreation"),
-    ("other", "Miscellaneous general purchase other"),
+    ("food_dining", "Restaurant food delivery takeout cafe coffee shop bar dining DoorDash UberEats Grubhub"),
+    ("groceries", "Grocery store supermarket produce vegetables fruits meat dairy Walmart Target Whole Foods"),
+    ("gas_auto", "Gas station fuel petrol gasoline car vehicle automotive maintenance repair"),
+    ("shopping", "Amazon retail online shopping ecommerce clothes electronics department store merchandise"),
+    ("travel", "Airline hotel flight booking vacation trip travel transportation Uber Lyft rideshare"),
+    ("entertainment", "Netflix Hulu Disney streaming subscription video music movies concerts gaming Spotify"),
+    ("healthcare", "Pharmacy doctor hospital medical prescription health insurance CVS Walgreens"),
+    ("services", "Government education utilities professional services electric water internet phone bill"),
+    ("home", "Home improvement furniture appliances repair Lowes Home Depot IKEA"),
+    ("other", "Miscellaneous general purchase uncategorized"),
 ]
 
 # Card encryption key
@@ -171,11 +185,28 @@ class SnowflakeDB:
                 currency VARCHAR(3),
                 category VARCHAR,
                 category_confidence FLOAT,
+                spend_category VARCHAR(50),
+                points_earned INTEGER DEFAULT 0,
+                payment_method VARCHAR(50),
+                card_id VARCHAR,
                 product_text VARCHAR,
                 raw_json VARIANT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP()
             )
         """)
+        
+        # Add new columns if they don't exist (for existing tables)
+        tx_columns = [
+            "spend_category VARCHAR(50)",
+            "points_earned INTEGER DEFAULT 0",
+            "payment_method VARCHAR(50)",
+            "card_id VARCHAR"
+        ]
+        for col_def in tx_columns:
+            try:
+                cursor.execute(f"ALTER TABLE TRANSACTIONS ADD COLUMN IF NOT EXISTS {col_def}")
+            except Exception as e:
+                print(f"Note: Could not add column {col_def}: {e}")
         
         # Category embeddings table
         cursor.execute("""
@@ -330,14 +361,29 @@ class SnowflakeDB:
         price = tx.get("price", {})
         total = price.get("total", "0")
         
+        # Extract payment method from Knot transaction (first payment method)
+        payment_methods = tx.get("payment_methods", [])
+        payment_method = None
+        if payment_methods:
+            pm = payment_methods[0]
+            # Check type first (PAYPAL, CARD, etc.), then brand (VISA, PAYPAL, etc.)
+            pm_type = pm.get("type", "").upper()
+            pm_brand = pm.get("brand", "").upper()
+            if pm_type == "PAYPAL" or pm_brand == "PAYPAL":
+                payment_method = "PAYPAL"
+            else:
+                payment_method = pm_brand or pm_type or "CARD"
+        
         cursor.execute("""
             MERGE INTO TRANSACTIONS AS target
             USING (SELECT %s AS id) AS source
             ON target.id = source.id
             WHEN NOT MATCHED THEN
                 INSERT (id, external_id, user_id, merchant_id, merchant_name,
-                        datetime, order_status, total_amount, currency, product_text, raw_json)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, PARSE_JSON(%s))
+                        datetime, order_status, total_amount, currency, payment_method, product_text, raw_json)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, PARSE_JSON(%s))
+            WHEN MATCHED THEN
+                UPDATE SET payment_method = %s
         """, (
             tx_id,
             tx_id,
@@ -349,12 +395,14 @@ class SnowflakeDB:
             tx.get("order_status", ""),
             float(total) if total else 0,
             price.get("currency", "USD"),
+            payment_method,
             product_text,
             json.dumps(tx),
+            payment_method,  # For the UPDATE clause
         ))
         
         conn.commit()
-        return {"success": True, "id": tx_id}
+        return {"success": True, "id": tx_id, "payment_method": payment_method}
     
     def save_transactions_batch(self, transactions: List[Dict], user_id: str, merchant_id: int, merchant_name: str) -> Dict[str, Any]:
         """Save multiple transactions"""
@@ -371,28 +419,31 @@ class SnowflakeDB:
         """Get transactions from Snowflake"""
         conn, cursor = self._get_connection()
         
+        query = """
+            SELECT id, external_id, merchant_id, merchant_name, datetime,
+                   order_status, total_amount, currency, 
+                   spend_category, category_confidence,
+                   points_earned, payment_method, card_id, raw_json
+            FROM TRANSACTIONS 
+            WHERE user_id = %s
+        """
+        params = [user_id]
+        
         if merchant_id:
-            cursor.execute("""
-                SELECT id, external_id, merchant_id, merchant_name, datetime,
-                       order_status, total_amount, currency, category, category_confidence
-                FROM TRANSACTIONS 
-                WHERE user_id = %s AND merchant_id = %s
-                ORDER BY datetime DESC
-                LIMIT %s
-            """, (user_id, merchant_id, limit))
-        else:
-            cursor.execute("""
-                SELECT id, external_id, merchant_id, merchant_name, datetime,
-                       order_status, total_amount, currency, category, category_confidence
-                FROM TRANSACTIONS 
-                WHERE user_id = %s
-                ORDER BY datetime DESC
-                LIMIT %s
-            """, (user_id, limit))
+            query += " AND merchant_id = %s"
+            params.append(merchant_id)
+            
+        query += " ORDER BY datetime DESC LIMIT %s"
+        params.append(limit)
+        
+        cursor.execute(query, tuple(params))
         
         rows = cursor.fetchall()
         transactions = []
         for row in rows:
+            raw_json_str = row[13]
+            raw_data = json.loads(raw_json_str) if raw_json_str and isinstance(raw_json_str, str) else (raw_json_str if raw_json_str else {})
+            
             transactions.append({
                 "id": row[0],
                 "external_id": row[1],
@@ -402,8 +453,12 @@ class SnowflakeDB:
                 "order_status": row[5],
                 "total_amount": float(row[6]) if row[6] else 0,
                 "currency": row[7],
-                "category": row[8],
+                "category": row[8], # spend_category
                 "category_confidence": float(row[9]) if row[9] else None,
+                "points_earned": row[10] if row[10] is not None else 0,
+                "payment_method": row[11],
+                "card_id": row[12],
+                "raw_json": raw_data
             })
         return transactions
     
@@ -481,6 +536,233 @@ class SnowflakeDB:
         count = cursor.rowcount
         conn.commit()
         return {"success": True, "classified": count}
+    
+    # ========== Cortex AI Categorization ==========
+    
+    def categorize_transaction_ai(self, tx_id: str) -> Dict[str, Any]:
+        """Use Snowflake Cortex CLASSIFY_TEXT to categorize a transaction"""
+        conn, cursor = self._get_connection()
+        
+        # Build category array for CLASSIFY_TEXT
+        category_array = ", ".join([f"'{cat}'" for cat in SPEND_CATEGORIES])
+        
+        try:
+            cursor.execute(f"""
+                WITH classification AS (
+                    SELECT 
+                        id,
+                        SNOWFLAKE.CORTEX.CLASSIFY_TEXT(
+                            COALESCE(product_text, '') || ' ' || COALESCE(merchant_name, ''),
+                            ARRAY_CONSTRUCT({category_array})
+                        ) AS result
+                    FROM TRANSACTIONS
+                    WHERE id = %s
+                )
+                SELECT 
+                    id,
+                    result:label::VARCHAR AS category,
+                    result:score::FLOAT AS confidence
+                FROM classification
+            """, (tx_id,))
+            
+            result = cursor.fetchone()
+            if result:
+                category = result[1]
+                confidence = result[2]
+                
+                # Update the transaction
+                cursor.execute("""
+                    UPDATE TRANSACTIONS 
+                    SET spend_category = %s, category_confidence = %s
+                    WHERE id = %s
+                """, (category, confidence, tx_id))
+                conn.commit()
+                
+                return {"id": tx_id, "spend_category": category, "confidence": confidence}
+        except Exception as e:
+            print(f"CLASSIFY_TEXT error, falling back to vector: {e}")
+            # Fallback to legacy vector classification
+            return self.classify_transaction(tx_id)
+        
+        return {"id": tx_id, "spend_category": None, "error": "No text to classify"}
+    
+    def parse_benefits_with_ai(self, benefits_text: str) -> Dict[str, int]:
+        """Use Cortex AI to parse natural language benefits into multipliers"""
+        if not benefits_text or benefits_text.strip() == "":
+            return {}
+        
+        conn, cursor = self._get_connection()
+        
+        try:
+            # Use Cortex COMPLETE to extract multipliers from natural language
+            prompt = f"""Extract point multipliers from this credit card benefits text.
+Return ONLY a valid JSON object with category:multiplier pairs.
+Valid categories: food_dining, groceries, gas_auto, shopping, travel, entertainment, healthcare, services, home
+If a category is not mentioned, do not include it.
+For "all purchases" or "everything" use "base" key.
+
+Benefits text: {benefits_text}
+
+Return JSON only, no explanation:"""
+            
+            cursor.execute("""
+                SELECT SNOWFLAKE.CORTEX.COMPLETE(
+                    'mistral-large2',
+                    %s
+                ) AS parsed
+            """, (prompt,))
+            
+            result = cursor.fetchone()
+            if result and result[0]:
+                # Parse the JSON response
+                import re
+                response = result[0]
+                # Extract JSON from response
+                json_match = re.search(r'\{[^}]+\}', response)
+                if json_match:
+                    return json.loads(json_match.group())
+        except Exception as e:
+            print(f"Benefits parsing error: {e}")
+        
+        return {}
+    
+    def calculate_points(self, tx_id: str, card_id: str = None) -> Dict[str, Any]:
+        """Calculate points earned for a transaction based on card benefits"""
+        conn, cursor = self._get_connection()
+        
+        # Get transaction details
+        cursor.execute("""
+            SELECT id, spend_category, total_amount, payment_method, card_id
+            FROM TRANSACTIONS WHERE id = %s
+        """, (tx_id,))
+        
+        tx = cursor.fetchone()
+        if not tx:
+            return {"error": "Transaction not found"}
+        
+        tx_id, spend_category, amount, payment_method, tx_card_id = tx
+        
+        # PayPal = 0 points
+        if payment_method and 'PAYPAL' in payment_method.upper():
+            cursor.execute("UPDATE TRANSACTIONS SET points_earned = 0 WHERE id = %s", (tx_id,))
+            conn.commit()
+            return {"id": tx_id, "points_earned": 0, "reason": "PayPal payment"}
+        
+        # Get card benefits
+        use_card_id = card_id or tx_card_id
+        if not use_card_id:
+            # Default 1x points
+            points = int(amount) if amount else 0
+            cursor.execute("UPDATE TRANSACTIONS SET points_earned = %s WHERE id = %s", (points, tx_id))
+            conn.commit()
+            return {"id": tx_id, "points_earned": points, "multiplier": 1}
+        
+        cursor.execute("SELECT benefits FROM CARDS WHERE card_id = %s", (use_card_id,))
+        card = cursor.fetchone()
+        benefits_text = card[0] if card and card[0] else ""
+        
+        # Parse benefits with AI
+        multipliers = self.parse_benefits_with_ai(benefits_text)
+        
+        # Get multiplier for category
+        multiplier = multipliers.get(spend_category, multipliers.get("base", 1))
+        points = int(float(amount or 0) * multiplier)
+        
+        cursor.execute("UPDATE TRANSACTIONS SET points_earned = %s WHERE id = %s", (points, tx_id))
+        conn.commit()
+        
+        return {"id": tx_id, "points_earned": points, "multiplier": multiplier, "category": spend_category}
+    
+    def process_all_uncategorized(self, user_id: str = None) -> Dict[str, Any]:
+        """Categorize and calculate points for all uncategorized transactions"""
+        conn, cursor = self._get_connection()
+        
+        # Get uncategorized transactions
+        if user_id:
+            cursor.execute("""
+                SELECT id FROM TRANSACTIONS 
+                WHERE spend_category IS NULL AND user_id = %s
+            """, (user_id,))
+        else:
+            cursor.execute("SELECT id FROM TRANSACTIONS WHERE spend_category IS NULL")
+        
+        tx_ids = [row[0] for row in cursor.fetchall()]
+        
+        categorized = 0
+        points_calculated = 0
+        
+        for tx_id in tx_ids:
+            try:
+                # Categorize
+                result = self.categorize_transaction_ai(tx_id)
+                if result.get("spend_category"):
+                    categorized += 1
+                    # Calculate points
+                    points_result = self.calculate_points(tx_id)
+                    if points_result.get("points_earned") is not None:
+                        points_calculated += 1
+            except Exception as e:
+                print(f"Error processing {tx_id}: {e}")
+        
+        return {
+            "success": True,
+            "transactions_found": len(tx_ids),
+            "categorized": categorized,
+            "points_calculated": points_calculated
+        }
+    
+    def backfill_payment_methods(self, user_id: str = None) -> Dict[str, Any]:
+        """Backfill payment_method from raw_json for existing transactions"""
+        conn, cursor = self._get_connection()
+        
+        # Update payment_method from raw_json where it's currently NULL
+        cursor.execute("""
+            UPDATE TRANSACTIONS
+            SET payment_method = 
+                CASE 
+                    WHEN raw_json:payment_methods[0]:type::VARCHAR = 'PAYPAL' 
+                         OR UPPER(raw_json:payment_methods[0]:brand::VARCHAR) = 'PAYPAL'
+                    THEN 'PAYPAL'
+                    ELSE COALESCE(
+                        UPPER(raw_json:payment_methods[0]:brand::VARCHAR),
+                        UPPER(raw_json:payment_methods[0]:type::VARCHAR),
+                        'CARD'
+                    )
+                END
+            WHERE payment_method IS NULL
+              AND raw_json:payment_methods[0] IS NOT NULL
+        """)
+        
+        updated = cursor.rowcount
+        conn.commit()
+        return {"success": True, "updated": updated}
+    
+    def recalculate_all_points(self, user_id: str = None) -> Dict[str, Any]:
+        """Recalculate points for all transactions (respecting PayPal = 0)"""
+        conn, cursor = self._get_connection()
+        
+        # First, set PayPal transactions to 0 points
+        cursor.execute("""
+            UPDATE TRANSACTIONS
+            SET points_earned = 0
+            WHERE payment_method = 'PAYPAL'
+        """)
+        paypal_zeroed = cursor.rowcount
+        
+        # For non-PayPal, use 1x base (simplified - full version would parse benefits)
+        cursor.execute("""
+            UPDATE TRANSACTIONS
+            SET points_earned = FLOOR(total_amount)
+            WHERE payment_method != 'PAYPAL' OR payment_method IS NULL
+        """)
+        calculated = cursor.rowcount
+        
+        conn.commit()
+        return {
+            "success": True,
+            "paypal_zeroed": paypal_zeroed,
+            "points_calculated": calculated
+        }
     
     # ========== Cashflow Analytics ==========
     
