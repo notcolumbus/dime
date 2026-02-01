@@ -1,23 +1,13 @@
 import { createServer, IncomingMessage, ServerResponse } from "http";
 import { IMessageSDK } from "@photon-ai/imessage-kit";
-
-export interface SendMessageRequest {
-  phoneNumber: string;
-  message: string;
-}
-
-export interface SendMessageResponse {
-  success: boolean;
-  error?: string;
-  sentAt?: string;
-}
+import { normalizePhone, CORS_HEADERS } from "./utils.js";
 
 export class MessageServer {
   private sdk: IMessageSDK;
   private server: ReturnType<typeof createServer> | null = null;
   private port: number;
 
-  constructor(port: number = 3456) {
+  constructor(port = 3456) {
     this.sdk = new IMessageSDK();
     this.port = port;
   }
@@ -25,132 +15,65 @@ export class MessageServer {
   private async parseBody(req: IncomingMessage): Promise<any> {
     return new Promise((resolve, reject) => {
       let body = "";
-      req.on("data", (chunk) => {
-        body += chunk.toString();
-      });
+      req.on("data", (chunk) => (body += chunk.toString()));
       req.on("end", () => {
         try {
           resolve(body ? JSON.parse(body) : {});
-        } catch (err) {
-          reject(new Error("Invalid JSON body"));
+        } catch {
+          reject(new Error("Invalid JSON"));
         }
       });
       req.on("error", reject);
     });
   }
 
-  private sendJson(res: ServerResponse, statusCode: number, data: any): void {
-    res.writeHead(statusCode, {
-      "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
-    });
-    res.end(JSON.stringify(data, null, 2));
+  private sendJson(res: ServerResponse, status: number, data: any): void {
+    res.writeHead(status, { "Content-Type": "application/json", ...CORS_HEADERS });
+    res.end(JSON.stringify(data));
   }
 
   private async handleSendMessage(req: IncomingMessage, res: ServerResponse): Promise<void> {
     try {
-      const body = await this.parseBody(req) as SendMessageRequest;
-
-      // Validate request
-      if (!body.phoneNumber) {
-        this.sendJson(res, 400, {
-          success: false,
-          error: "phoneNumber is required",
-        });
+      const { phoneNumber, message } = await this.parseBody(req);
+      if (!phoneNumber) {
+        this.sendJson(res, 400, { success: false, error: "phoneNumber required" });
+        return;
+      }
+      if (!message) {
+        this.sendJson(res, 400, { success: false, error: "message required" });
         return;
       }
 
-      if (!body.message) {
-        this.sendJson(res, 400, {
-          success: false,
-          error: "message is required",
-        });
-        return;
-      }
-
-      // Normalize phone number
-      let phoneNumber = body.phoneNumber;
-      if (!phoneNumber.startsWith("+")) {
-        // Assume US number if no country code
-        const digits = phoneNumber.replace(/\D/g, "");
-        phoneNumber = digits.length === 10 ? `+1${digits}` : `+${digits}`;
-      }
-
-      console.log(`\n[API] Sending message to ${phoneNumber}: "${body.message.slice(0, 50)}..."`);
-
-      // Send message via iMessage SDK
-      const result = await this.sdk.send(phoneNumber, body.message);
-
-      console.log(`[API] Message sent successfully at ${result.sentAt}`);
-
-      this.sendJson(res, 200, {
-        success: true,
-        sentAt: result.sentAt.toISOString(),
-      });
+      const phone = normalizePhone(phoneNumber);
+      const result = await this.sdk.send(phone, message);
+      this.sendJson(res, 200, { success: true, sentAt: result.sentAt.toISOString() });
     } catch (err: any) {
-      console.error("[API] Error sending message:", err);
-      this.sendJson(res, 500, {
-        success: false,
-        error: err.message || "Failed to send message",
-      });
+      console.error("Send error:", err);
+      this.sendJson(res, 500, { success: false, error: err.message || "Failed" });
     }
   }
 
   async sendExternal(phoneNumber: string, message: string): Promise<void> {
-    try {
-      // Normalize phone number if needed
-      let formattedPhone = phoneNumber;
-      if (!formattedPhone.startsWith("+")) {
-        const digits = formattedPhone.replace(/\D/g, "");
-        formattedPhone = digits.length === 10 ? `+1${digits}` : `+${digits}`;
-      }
-
-      console.log(`[SDK] Sending reply to ${formattedPhone}...`);
-      await this.sdk.send(formattedPhone, message);
-      console.log(`[SDK] Reply sent.`);
-    } catch (err) {
-      console.error(`[SDK] Failed to send reply to ${phoneNumber}:`, err);
-      throw err;
-    }
+    const phone = normalizePhone(phoneNumber);
+    await this.sdk.send(phone, message);
   }
 
   private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = req.url || "/";
     const method = req.method || "GET";
 
-    // Handle CORS preflight
     if (method === "OPTIONS") {
-      res.writeHead(204, {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
-      });
+      res.writeHead(204, CORS_HEADERS);
       res.end();
       return;
     }
 
-    // Route requests
     if (url === "/api/send" && method === "POST") {
       await this.handleSendMessage(req, res);
     } else if (url === "/api/health" && method === "GET") {
-      this.sendJson(res, 200, { status: "ok", service: "photon-agent" });
+      this.sendJson(res, 200, { status: "ok" });
     } else if (url === "/" && method === "GET") {
-      this.sendJson(res, 200, {
-        service: "Photon Agent API",
-        endpoints: {
-          "POST /api/send": "Send an iMessage to a phone number",
-          "GET /api/health": "Health check",
-        },
-        example: {
-          endpoint: "POST /api/send",
-          body: {
-            phoneNumber: "+1234567890",
-            message: "Hello from Photon Agent!",
-          },
-        },
-      });
+      this.sendJson(res, 200, { service: "Photon Agent", endpoints: ["/api/send", "/api/health"] });
     } else {
       this.sendJson(res, 404, { error: "Not found" });
     }
@@ -159,17 +82,10 @@ export class MessageServer {
   start(): Promise<void> {
     return new Promise((resolve) => {
       this.server = createServer((req, res) => {
-        this.handleRequest(req, res).catch((err) => {
-          console.error("[API] Unhandled error:", err);
-          this.sendJson(res, 500, { error: "Internal server error" });
-        });
+        this.handleRequest(req, res).catch(() => this.sendJson(res, 500, { error: "Server error" }));
       });
-
       this.server.listen(this.port, () => {
-        console.log(`\n[API] Message API server running on http://localhost:${this.port}`);
-        console.log(`[API] Endpoints:`);
-        console.log(`      POST http://localhost:${this.port}/api/send - Send a message`);
-        console.log(`      GET  http://localhost:${this.port}/api/health - Health check\n`);
+        console.log(`API server on http://localhost:${this.port}`);
         resolve();
       });
     });
@@ -177,12 +93,7 @@ export class MessageServer {
 
   async stop(): Promise<void> {
     if (this.server) {
-      return new Promise((resolve) => {
-        this.server!.close(() => {
-          console.log("[API] Server stopped");
-          resolve();
-        });
-      });
+      await new Promise<void>((r) => this.server!.close(() => r()));
     }
     await this.sdk.close();
   }

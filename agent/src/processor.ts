@@ -1,170 +1,132 @@
 import { GoogleGenAI } from "@google/genai";
+import sharp from "sharp";
+import heicConvert from "heic-convert";
 import { config } from "./config.js";
-import type { ParsedReceipt, Merchant, TransactionDetails, LineItem } from "./types.js";
+import type { ParsedReceipt } from "./types.js";
 
-const RECEIPT_EXTRACTION_PROMPT = `
-Analyze this receipt image and extract the following information in JSON format.
+// Improved prompt with explicit payment method instruction
+const RECEIPT_PROMPT = `Extract ALL data from this receipt as JSON. IMPORTANT: Look carefully for the PAYMENT METHOD (card type, last 4 digits, Apple Pay, Cash, etc.) - it's usually at the bottom.
 
-Extract:
-1. Merchant name and category (grocery, restaurant, retail, gas, pharmacy, entertainment, travel, etc.)
-2. Merchant address if visible
-3. Transaction date (format: YYYY-MM-DD)
-4. Subtotal, tax, and total amounts (as numbers, no currency symbols)
-5. Payment method if visible (e.g., "Visa ending in 1234", "Cash", "Apple Pay")
-6. Individual line items with descriptions, quantities, and prices
+Return ONLY valid JSON:
+{"merchant":{"name":"str","category":"grocery|restaurant|retail|gas|pharmacy|entertainment|travel|utilities|other","address":"str|null"},"transaction":{"date":"YYYY-MM-DD|null","subtotal":num|null,"tax":num|null,"total":num},"payment_method":"str|null (e.g. 'Visa ****1234', 'Apple Pay', 'Cash')","items":[{"description":"str","quantity":num,"price":num}],"confidence_score":0-1}`;
 
-If any field is unclear or not visible, set it to null.
-For items without clear quantities, assume quantity of 1.
-
-Respond ONLY with valid JSON matching this exact schema (no markdown, no explanation):
-{
-  "merchant": {
-    "name": "string",
-    "category": "string or null",
-    "address": "string or null"
-  },
-  "transaction": {
-    "date": "YYYY-MM-DD or null",
-    "subtotal": number or null,
-    "tax": number or null,
-    "total": number
-  },
-  "payment_method": "string or null",
-  "items": [
-    {
-      "description": "string",
-      "quantity": number,
-      "price": number
-    }
-  ],
-  "confidence_score": number between 0 and 1
-}
-
-Important:
-- The total field is REQUIRED - estimate if not clearly visible
-- confidence_score should reflect how clearly you could read the receipt (1.0 = perfect, 0.5 = partially readable)
-- Category should be one of: grocery, restaurant, retail, gas, pharmacy, entertainment, travel, utilities, other
-`;
+// Image compression settings for faster processing
+const MAX_IMAGE_WIDTH = 1200;
+const JPEG_QUALITY = 80;
 
 export class ReceiptProcessor {
   private ai: GoogleGenAI;
-  private model: string = "gemini-2.5-flash";
+  private model = "gemini-3-flash-preview";
 
   constructor(apiKey?: string) {
-    const key = apiKey || config.GEMINI_API_KEY;
-    this.ai = new GoogleGenAI({ apiKey: key });
-    console.log(`ReceiptProcessor initialized with Gemini API (${this.model})`);
+    this.ai = new GoogleGenAI({ apiKey: apiKey || config.GEMINI_API_KEY });
   }
 
-  private parseResponse(responseText: string): ParsedReceipt {
-    // Clean up response - remove markdown code blocks if present
-    let text = responseText.trim();
-    if (text.startsWith("```json")) {
-      text = text.slice(7);
+  // Convert HEIC to JPEG using heic-convert
+  private async convertHeicToJpeg(imageData: Buffer): Promise<Buffer> {
+    const result = await heicConvert({
+      buffer: imageData,
+      format: "JPEG",
+      quality: JPEG_QUALITY / 100,
+    });
+    return Buffer.from(result);
+  }
+
+  // Compress image to reduce upload size and processing time
+  private async compressImage(imageData: Buffer, mimeType: string): Promise<{ data: Buffer; mimeType: string }> {
+    try {
+      let jpegData: Buffer;
+
+      // Handle HEIC/HEIF separately using heic-convert
+      if (mimeType === "image/heic" || mimeType === "image/heif") {
+        console.log("Converting HEIC to JPEG...");
+        jpegData = await this.convertHeicToJpeg(imageData);
+        mimeType = "image/jpeg";
+      } else {
+        jpegData = imageData;
+      }
+
+      // Now use sharp for resizing/compression
+      let sharpInstance = sharp(jpegData);
+      const metadata = await sharpInstance.metadata();
+
+      // Only resize if image is larger than max width
+      if (metadata.width && metadata.width > MAX_IMAGE_WIDTH) {
+        sharpInstance = sharpInstance.resize(MAX_IMAGE_WIDTH, null, { withoutEnlargement: true });
+      }
+
+      // Compress to JPEG
+      if (mimeType === "image/png") {
+        const compressed = await sharpInstance.png({ compressionLevel: 8 }).toBuffer();
+        return { data: compressed, mimeType: "image/png" };
+      }
+
+      const compressed = await sharpInstance.jpeg({ quality: JPEG_QUALITY }).toBuffer();
+      return { data: compressed, mimeType: "image/jpeg" };
+    } catch (err) {
+      console.warn("Image compression failed, using original:", err);
+      return { data: imageData, mimeType };
     }
-    if (text.startsWith("```")) {
-      text = text.slice(3);
-    }
-    if (text.endsWith("```")) {
-      text = text.slice(0, -3);
-    }
-    text = text.trim();
+  }
 
-    const data = JSON.parse(text);
+  private parseResponse(text: string): ParsedReceipt {
+    let clean = text.trim();
+    if (clean.startsWith("```json")) clean = clean.slice(7);
+    else if (clean.startsWith("```")) clean = clean.slice(3);
+    if (clean.endsWith("```")) clean = clean.slice(0, -3);
 
-    // Build merchant
-    const merchantData = data.merchant || {};
-    const merchant: Merchant = {
-      name: merchantData.name || "Unknown",
-      category: merchantData.category || null,
-      address: merchantData.address || null,
-    };
-
-    // Build transaction details
-    const txnData = data.transaction || {};
-    const transaction: TransactionDetails = {
-      date: txnData.date || null,
-      subtotal: txnData.subtotal ?? null,
-      tax: txnData.tax ?? null,
-      total: txnData.total || 0,
-      paymentMethod: data.payment_method || null,
-    };
-
-    // Build line items
-    const items: LineItem[] = (data.items || []).map((item: any) => ({
-      description: item.description || "Unknown item",
-      quantity: item.quantity || 1,
-      price: item.price || 0,
-    }));
+    const data = JSON.parse(clean.trim());
+    const m = data.merchant || {};
+    const t = data.transaction || {};
 
     return {
-      merchant,
-      transaction,
-      items,
+      merchant: { name: m.name || "Unknown", category: m.category || null, address: m.address || null },
+      transaction: {
+        date: t.date || null,
+        subtotal: t.subtotal ?? null,
+        tax: t.tax ?? null,
+        total: t.total || 0,
+        paymentMethod: data.payment_method || null,
+      },
+      items: (data.items || []).map((i: any) => ({
+        description: i.description || "Item",
+        quantity: i.quantity || 1,
+        price: i.price || 0,
+      })),
       confidenceScore: data.confidence_score || 0.5,
     };
   }
 
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
-  async processReceipt(
-    imageData: Buffer,
-    useFallback: boolean = false,
-    mimeType: string = "image/jpeg",
-    retryCount: number = 0
-  ): Promise<ParsedReceipt | null> {
-    const maxRetries = 3;
-
+  async processReceipt(imageData: Buffer, _useFallback = false, mimeType = "image/jpeg", retryCount = 0): Promise<ParsedReceipt | null> {
     try {
-      // Create the content with image
+      // Compress image for faster upload and processing
+      const compressed = await this.compressImage(imageData, mimeType);
+      const originalSize = imageData.length;
+      const newSize = compressed.data.length;
+      if (newSize < originalSize) {
+        console.log(`Image compressed: ${(originalSize / 1024).toFixed(0)}KB → ${(newSize / 1024).toFixed(0)}KB`);
+      }
+
+      const base64Data = compressed.data.toString("base64");
       const response = await this.ai.models.generateContent({
         model: this.model,
-        contents: [
-          {
-            role: "user",
-            parts: [
-              { text: RECEIPT_EXTRACTION_PROMPT },
-              {
-                inlineData: {
-                  mimeType: mimeType,
-                  data: imageData.toString("base64"),
-                },
-              },
-            ],
-          },
-        ],
+        contents: [{ role: "user", parts: [{ text: RECEIPT_PROMPT }, { inlineData: { mimeType: compressed.mimeType, data: base64Data } }] }],
       });
 
-      const text = response.text;
+      if (!response.text) return null;
 
-      if (!text) {
-        console.warn("Empty response from Gemini");
-        return null;
-      }
-
-      // Parse response
-      const receipt = this.parseResponse(text);
-      console.log(
-        `Parsed receipt: ${receipt.merchant.name} - $${receipt.transaction.total.toFixed(2)} (confidence: ${(receipt.confidenceScore * 100).toFixed(0)}%)`
-      );
+      const receipt = this.parseResponse(response.text);
+      const paymentInfo = receipt.transaction.paymentMethod ? ` | Payment: ${receipt.transaction.paymentMethod}` : "";
+      console.log(`Parsed: ${receipt.merchant.name} - $${receipt.transaction.total.toFixed(2)}${paymentInfo}`);
       return receipt;
     } catch (err: any) {
-      // Handle rate limit errors with retry
-      if (err?.status === 429 && retryCount < maxRetries) {
-        // Extract retry delay from error or use default
-        const retryDelay = 20; // seconds
-        console.log(`Rate limited. Waiting ${retryDelay}s before retry ${retryCount + 1}/${maxRetries}...`);
-        await this.sleep(retryDelay * 1000);
-        return this.processReceipt(imageData, useFallback, mimeType, retryCount + 1);
+      if (err?.status === 429 && retryCount < 3) {
+        const delay = Math.min(5 * Math.pow(2, retryCount), 30); // 5s, 10s, 20s
+        console.log(`Rate limited. Retry ${retryCount + 1}/3 in ${delay}s...`);
+        await new Promise((r) => setTimeout(r, delay * 1000));
+        return this.processReceipt(imageData, _useFallback, mimeType, retryCount + 1);
       }
-
-      if (err instanceof SyntaxError) {
-        console.error("Failed to parse Gemini response as JSON:", err);
-      } else {
-        console.error("Error processing receipt:", err);
-      }
+      console.error("Receipt processing error:", err instanceof SyntaxError ? "Invalid JSON" : err.message || err);
       return null;
     }
   }

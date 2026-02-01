@@ -1,182 +1,95 @@
 import { IMessageSDK } from "@photon-ai/imessage-kit";
-import { readFileSync, existsSync } from "fs";
+import { existsSync } from "fs";
+import { readFile } from "fs/promises";
 import { config } from "./config.js";
+import { normalizePhone, isReactionMessage, isImageFile, getMimeType } from "./utils.js";
 import type { ReceivedMessage } from "./types.js";
 
 export class MessageListener {
   private sdk: IMessageSDK;
   private monitoredPhone: string;
+  private normalizedMonitoredPhone: string;
   private processedIds: Set<string> = new Set();
-  private lastCheckTime: Date | null = null;
   private startTime: Date;
 
   constructor(monitoredPhone?: string) {
     this.monitoredPhone = monitoredPhone || config.MONITORED_PHONE;
+    this.normalizedMonitoredPhone = this.monitoredPhone ? normalizePhone(this.monitoredPhone) : "";
     this.sdk = new IMessageSDK();
     this.startTime = new Date();
     console.log(`MessageListener initialized at ${this.startTime.toISOString()}`);
-    if (this.monitoredPhone) {
-      console.log(`Filtering for phone: ${this.monitoredPhone}`);
-    } else {
-      console.log(`Mode: Public (responding to all fresh incoming messages)`);
-    }
-  }
-
-  private normalizePhone(phone: string): string {
-    // Remove all non-digit characters except leading +
-    const digits = phone.replace(/\D/g, "");
-    // Handle US numbers - add country code if missing
-    if (digits.length === 10) {
-      return "+1" + digits;
-    }
-    return "+" + digits;
   }
 
   private isFromMonitoredPhone(sender: string): boolean {
-    if (!this.monitoredPhone) {
-      return true; // Accept all if no filter set
-    }
-    const normalizedSender = this.normalizePhone(sender);
-    const normalizedTarget = this.normalizePhone(this.monitoredPhone);
-    return normalizedSender === normalizedTarget;
-  }
-
-  private isImageAttachment(filename: string | null | undefined): boolean {
-    if (!filename) return false;
-    const lower = filename.toLowerCase();
-    return (
-      lower.endsWith(".jpg") ||
-      lower.endsWith(".jpeg") ||
-      lower.endsWith(".png") ||
-      lower.endsWith(".heic") ||
-      lower.endsWith(".heif")
-    );
-  }
-
-  private getMimeType(filename: string): string {
-    const lower = filename.toLowerCase();
-    if (lower.endsWith(".png")) return "image/png";
-    if (lower.endsWith(".heic")) return "image/heic";
-    if (lower.endsWith(".heif")) return "image/heif";
-    return "image/jpeg"; // Default for .jpg, .jpeg
+    if (!this.normalizedMonitoredPhone) return true;
+    return normalizePhone(sender) === this.normalizedMonitoredPhone;
   }
 
   async getNewMessages(): Promise<ReceivedMessage[]> {
     const newMessages: ReceivedMessage[] = [];
 
     try {
-      // Get recent messages using the SDK - returns MessageQueryResult
-      const result = await this.sdk.getMessages({
-        limit: 50,
-        excludeOwnMessages: true,
-      });
+      const result = await this.sdk.getMessages({ limit: 50, excludeOwnMessages: true });
 
       for (const msg of result.messages) {
         const msgId = msg.guid || String(msg.id);
-        if (!msgId || this.processedIds.has(msgId)) {
-          continue;
-        }
+        if (!msgId || this.processedIds.has(msgId)) continue;
 
-        // For debugging: log basic info for all recent messages
-        console.log(`[DEBUG] Checking msg ${msgId} from ${msg.sender} at ${msg.date.toISOString()}`);
-
-        // 1. MUST IGNORE historical messages (only process "live" time)
+        // CRITICAL: Ignore historical messages (only process messages after startup)
         if (msg.date < this.startTime) {
           this.processedIds.add(msgId);
-          console.log(`[DEBUG] Ignoring historical message ${msgId}`);
           continue;
         }
 
-        // 2. MUST IGNORE Tapbacks/Reactions (breaks loops and prevents weird replies)
+        // Ignore reactions/tapbacks
         const text = msg.text || "";
-        const isReaction =
-          text.startsWith("Liked “") ||
-          text.startsWith("Loved “") ||
-          text.startsWith("Disliked “") ||
-          text.startsWith("Laughed at “") ||
-          text.startsWith("Emphasized “") ||
-          text.startsWith("Questioned “") ||
-          text.startsWith("Removed a Like") ||
-          text.startsWith("Removed a Love");
-
-        if (isReaction) {
+        if (isReactionMessage(text)) {
           this.processedIds.add(msgId);
           continue;
         }
 
-        // Check sender
         const sender = msg.sender || "";
-        if (!sender || !this.isFromMonitoredPhone(sender)) {
-          // This should only happen if sender is empty since monitoredPhone is now empty
-          console.log(`[DEBUG] Skipping msg ${msgId}: sender is empty`);
-          continue;
-        }
-
-        if (msg.isFromMe) {
+        if (!sender || !this.isFromMonitoredPhone(sender) || msg.isFromMe) {
           this.processedIds.add(msgId);
           continue;
         }
 
-        // Handle text messages (no attachments or in addition to attachments)
         const hasAttachments = msg.attachments && msg.attachments.length > 0;
 
+        // Text-only message
         if (!hasAttachments && msg.text) {
-          newMessages.push({
-            messageId: msgId,
-            senderPhone: sender,
-            receivedAt: msg.date,
-            text: msg.text
-          });
+          newMessages.push({ messageId: msgId, senderPhone: sender, receivedAt: msg.date, text: msg.text });
           this.processedIds.add(msgId);
-          console.log(`New text message from ${sender}: ${msg.text.slice(0, 50)}...`);
+          console.log(`New text from ${sender}: ${msg.text.slice(0, 40)}...`);
           continue;
         }
 
-        // Handle image attachments
+        // Image attachments - process asynchronously
         if (hasAttachments) {
-          let foundImage = false;
           for (const attachment of msg.attachments!) {
-            if (!this.isImageAttachment(attachment.filename)) {
-              continue;
-            }
+            if (!isImageFile(attachment.filename)) continue;
 
             const imagePath = attachment.path;
-            if (!imagePath || !existsSync(imagePath)) {
-              console.warn(`Image path not found for message ${msgId}`);
-              continue;
-            }
+            if (!imagePath || !existsSync(imagePath)) continue;
 
             try {
-              const imageData = readFileSync(imagePath);
-              const mimeType = this.getMimeType(attachment.filename);
-
+              const imageData = await readFile(imagePath);
+              const mimeType = getMimeType(attachment.filename!);
               newMessages.push({
                 messageId: msgId,
                 senderPhone: sender,
                 receivedAt: msg.date,
-                imagePath: imagePath,
-                imageData: imageData,
-                mimeType: mimeType,
-                text: msg.text || undefined
+                imagePath,
+                imageData,
+                mimeType,
+                text: msg.text || undefined,
               });
-              foundImage = true;
-              console.log(`New receipt image from ${sender}: ${attachment.filename} (${mimeType})`);
+              this.processedIds.add(msgId);
+              console.log(`New receipt from ${sender}: ${attachment.filename}`);
+              break; // Only process first image per message
             } catch (err) {
-              console.error(`Failed to read image ${imagePath}:`, err);
+              console.error(`Failed to read image:`, err);
             }
-          }
-
-          if (foundImage) {
-            this.processedIds.add(msgId);
-          } else if (msg.text) {
-            // If no image found but has text, treat as text message
-            newMessages.push({
-              messageId: msgId,
-              senderPhone: sender,
-              receivedAt: msg.date,
-              text: msg.text
-            });
-            this.processedIds.add(msgId);
           }
         }
       }

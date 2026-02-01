@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 /**
  * Photon Agent - iMessage Receipt Ingestion System
- * Main entry point for the agent.
  */
 
 import { config } from "./config.js";
@@ -9,24 +8,22 @@ import { MessageListener } from "./listener.js";
 import { ReceiptProcessor } from "./processor.js";
 import { TransactionStore, createTransactionFromReceipt } from "./store.js";
 import { MessageServer } from "./server.js";
-import type { ReceivedMessage, Transaction } from "./types.js";
+import { formatReceiptConfirmation } from "./utils.js";
+import type { ReceivedMessage } from "./types.js";
 
 class PhotonAgent {
   private listener: MessageListener;
   private processor: ReceiptProcessor;
   private store: TransactionStore;
   private server: MessageServer;
-  private running: boolean = false;
+  private running = false;
 
-  constructor(apiPort: number = 3456) {
+  constructor(apiPort = 3456) {
     this.listener = new MessageListener();
     this.processor = new ReceiptProcessor();
     this.store = new TransactionStore();
     this.server = new MessageServer(apiPort);
-
-    // Load previously processed message IDs to avoid reprocessing
-    const processedIds = this.store.getProcessedMessageIds();
-    this.listener.loadProcessedIds(processedIds);
+    this.listener.loadProcessedIds(this.store.getProcessedMessageIds());
   }
 
   async startServer(): Promise<void> {
@@ -34,216 +31,88 @@ class PhotonAgent {
   }
 
   async processMessage(message: ReceivedMessage): Promise<boolean> {
-    console.log(
-      `Processing message ${message.messageId} from ${message.senderPhone}`
-    );
+    if (this.store.isProcessed(message.messageId)) return true;
 
-    // Check if already processed
-    if (this.store.isProcessed(message.messageId)) {
-      console.log(`Message ${message.messageId} already processed, skipping`);
-      return true;
-    }
-
-    // 1. Handle Receipt Image
+    // Handle receipt image
     if (message.imageData) {
-      // Process receipt image with Gemini
-      const parsedReceipt = await this.processor.processReceipt(
-        message.imageData,
-        false,
-        message.mimeType
-      );
+      const receipt = await this.processor.processReceipt(message.imageData, false, message.mimeType);
+      if (!receipt) return false;
 
-      if (!parsedReceipt) {
-        console.warn(`Failed to parse receipt from message ${message.messageId}`);
-        return false;
-      }
+      const txn = createTransactionFromReceipt(receipt, message.messageId, message.senderPhone, message.receivedAt);
+      const saved = this.store.saveTransaction(txn);
 
-      // Create transaction record
-      const transaction = createTransactionFromReceipt(
-        parsedReceipt,
-        message.messageId,
-        message.senderPhone,
-        message.receivedAt
-      );
-
-      // Save to database
-      const saved = this.store.saveTransaction(transaction);
       if (saved) {
-        console.log(
-          `Successfully processed receipt: ${transaction.merchant.name} - $${transaction.transaction.total.toFixed(2)}`
+        const msg = formatReceiptConfirmation(
+          txn.merchant.name,
+          txn.transaction.total,
+          txn.merchant.category,
+          txn.items,
+          txn.transaction.paymentMethod
         );
-        this.printTransactionSummary(transaction);
-
-        // Send a confirmation back to the user
-        let itemsList = "";
-        if (transaction.items && transaction.items.length > 0) {
-          itemsList = "\n\nItems:\n" + transaction.items
-            .map(item => `- ${item.description}: $${item.price.toFixed(2)}`)
-            .slice(0, 10) // Limit to 10 items
-            .join("\n");
-          if (transaction.items.length > 10) {
-            itemsList += `\n...and ${transaction.items.length - 10} more`;
-          }
-        }
-
-        const confirmationMsg = `✅ Receipt processed!\n\nMerchant: ${transaction.merchant.name}\nTotal: $${transaction.transaction.total.toFixed(2)}\nCategory: ${transaction.merchant.category || 'Other'}${itemsList}`;
-        await this.server.sendExternal(message.senderPhone, confirmationMsg);
-        this.store.markSent(confirmationMsg);
+        await this.server.sendExternal(message.senderPhone, msg);
+        this.store.markSent(msg);
       }
       return saved;
     }
 
-    // 2. Handle Text Chat Query
+    // Handle text chat
     if (message.text) {
-      // Loop protection: ignore our own messages if they weren't caught by isFromMe
       if (this.store.isBotResponse(message.text)) {
-        console.log(`[LOOP PROTECTION] Ignoring message that matches a recent bot response`);
         this.store.markProcessed(message.messageId);
         return true;
       }
 
-      console.log(`Handling chat query: "${message.text}"`);
       try {
-        // Call the backend chat API
         const response = await fetch(`${config.BACKEND_URL}/api/chat`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            user_id: "aman", // Hardcoded for now as per test requirement, or use phone?
-            message: message.text
-          }),
+          body: JSON.stringify({ user_id: "aman", message: message.text }),
         });
 
-        if (!response.ok) {
-          throw new Error(`Backend error: ${response.statusText}`);
-        }
+        if (!response.ok) throw new Error(`Backend: ${response.status}`);
 
-        const data = await response.json();
-        const botResponse = data.response;
-
-        if (botResponse) {
-          // Send response back to user
-          await this.server.sendExternal(message.senderPhone, botResponse);
-          this.store.markSent(botResponse); // Mark as sent to prevent re-processing
+        const { response: botReply } = await response.json();
+        if (botReply) {
+          await this.server.sendExternal(message.senderPhone, botReply);
+          this.store.markSent(botReply);
           this.store.markProcessed(message.messageId);
           return true;
         }
       } catch (err) {
-        console.error("Failed to handle chat message:", err);
-        const errorMsg = "I'm sorry, I'm having trouble connecting to the Dime brain right now. Please try again later.";
-        await this.server.sendExternal(message.senderPhone, errorMsg);
-        this.store.markSent(errorMsg);
+        console.error("Chat error:", err);
+        const errMsg = "Sorry, I'm having trouble connecting. Please try again.";
+        await this.server.sendExternal(message.senderPhone, errMsg);
+        this.store.markSent(errMsg);
       }
     }
 
     return false;
   }
 
-  private printTransactionSummary(txn: Transaction): void {
-    // ANSI color codes for terminal
-    const green = "\x1b[32m";
-    const cyan = "\x1b[36m";
-    const yellow = "\x1b[33m";
-    const bold = "\x1b[1m";
-    const reset = "\x1b[0m";
-
-    console.log("\n" + green + bold + "=".repeat(60) + reset);
-    console.log(green + bold + "   NEW RECEIPT PROCESSED SUCCESSFULLY!" + reset);
-    console.log(green + bold + "=".repeat(60) + reset);
-
-    console.log(cyan + "\n  MERCHANT INFO:" + reset);
-    console.log(`    Name:      ${bold}${txn.merchant.name}${reset}`);
-    console.log(`    Category:  ${txn.merchant.category || "Unknown"}`);
-    if (txn.merchant.address) {
-      console.log(`    Address:   ${txn.merchant.address}`);
-    }
-
-    console.log(cyan + "\n  TRANSACTION:" + reset);
-    console.log(`    Date:      ${txn.transaction.date || "Unknown"}`);
-    if (txn.transaction.subtotal !== null) {
-      console.log(`    Subtotal:  $${txn.transaction.subtotal.toFixed(2)}`);
-    }
-    if (txn.transaction.tax !== null) {
-      console.log(`    Tax:       $${txn.transaction.tax.toFixed(2)}`);
-    }
-    console.log(`    ${bold}Total:     ${yellow}$${txn.transaction.total.toFixed(2)}${reset}`);
-    if (txn.transaction.paymentMethod) {
-      console.log(`    Payment:   ${txn.transaction.paymentMethod}`);
-    }
-
-    if (txn.items.length > 0) {
-      console.log(cyan + "\n  LINE ITEMS:" + reset);
-      for (const item of txn.items) {
-        const qty = item.quantity > 1 ? ` (x${item.quantity})` : "";
-        console.log(`    - ${item.description}${qty}: $${item.price.toFixed(2)}`);
-      }
-    }
-
-    console.log(cyan + "\n  METADATA:" + reset);
-    console.log(`    Confidence: ${(txn.confidenceScore * 100).toFixed(0)}%`);
-    console.log(`    Message ID: ${txn.sourceMessageId.slice(0, 20)}...`);
-    console.log(`    Sender:     ${txn.senderPhone}`);
-
-    console.log(green + bold + "\n" + "=".repeat(60) + reset);
-
-    // Also output raw JSON for debugging
-    console.log(cyan + "\n  RAW JSON DATA:" + reset);
-    console.log(JSON.stringify({
-      merchant: txn.merchant,
-      transaction: txn.transaction,
-      items: txn.items,
-      confidence: txn.confidenceScore
-    }, null, 2));
-    console.log("\n");
-  }
-
   async runOnce(): Promise<number> {
     const messages = await this.listener.getNewMessages();
     let processed = 0;
-
-    for (const message of messages) {
-      const success = await this.processMessage(message);
-      if (success) {
-        processed++;
-      }
+    for (const msg of messages) {
+      if (await this.processMessage(msg)) processed++;
     }
-
     return processed;
   }
 
   async run(): Promise<void> {
     this.running = true;
-    const pollInterval = config.POLL_INTERVAL_SECONDS * 1000;
+    const pollMs = config.POLL_INTERVAL_SECONDS * 1000;
 
-    console.log(`\nPhoton Agent started. Monitoring phone: ${config.MONITORED_PHONE}`);
-    console.log(`Poll interval: ${config.POLL_INTERVAL_SECONDS} seconds`);
-    console.log("Press Ctrl+C to stop.\n");
-
-    // Print current stats
-    const total = this.store.getTotalSpending();
-    const recent = this.store.getRecentTransactions(5);
-    console.log(`Total spending tracked: $${total.toFixed(2)}`);
-    console.log(`Recent transactions: ${recent.length}`);
-    console.log("-".repeat(50));
+    console.log(`Photon Agent started | Poll: ${config.POLL_INTERVAL_SECONDS}s | Ctrl+C to stop`);
 
     while (this.running) {
       try {
-        const processed = await this.runOnce();
-        if (processed > 0) {
-          console.log(`Processed ${processed} new receipt(s)`);
-        }
-        await this.sleep(pollInterval);
+        const n = await this.runOnce();
+        if (n > 0) console.log(`Processed ${n} message(s)`);
       } catch (err) {
-        console.error("Error in main loop:", err);
-        await this.sleep(pollInterval);
+        console.error("Loop error:", err);
       }
+      await new Promise((r) => setTimeout(r, pollMs));
     }
-
-    console.log("Photon Agent stopped.");
-  }
-
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   stop(): void {
