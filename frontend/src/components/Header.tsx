@@ -37,7 +37,7 @@ export default function Header({ title = 'dashboard' }: HeaderProps) {
       <div style={{
         position: 'relative',
         width: '200px',
-        marginLeft: '550px',
+        marginLeft: '500px',
       }}>
         <MdSearch 
           size={22} 
