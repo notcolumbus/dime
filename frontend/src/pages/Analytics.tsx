@@ -231,23 +231,7 @@ export default function Analytics() {
           }}>
             deep insights into your spending and optimization opportunities
           </h2>
-          <button style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '10px 20px',
-            backgroundColor: '#14b8a6',
-            border: 'none',
-            borderRadius: '8px',
-            color: '#000',
-            fontSize: '14px',
-            fontWeight: '600',
-            cursor: 'pointer',
-            fontFamily: 'Coolvetica, sans-serif',
-          }}>
-            <MdFileDownload size={18} />
-            export report
-          </button>
+
         </div>
 
         {/* Stats Cards Row */}
