@@ -15,8 +15,6 @@ const PAYMENT_METHODS = [
     { value: "mastercard", label: "Mastercard", icon: "💳" },
     { value: "amex", label: "Amex", icon: "💳" },
     { value: "discover", label: "Discover", icon: "💳" },
-    { value: "apple_pay", label: "Apple Pay", icon: "🍎" },
-    { value: "google_pay", label: "Google Pay", icon: "🔵" },
 ];
 
 const POPULAR_MERCHANTS = [

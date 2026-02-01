@@ -49,9 +49,6 @@ def index():
         }
     })
 
-
-# Legacy endpoint aliases for backwards compatibility
-# These redirect to the new blueprint routes
 @app.route("/api/classify-transactions", methods=["POST"])
 def classify_transactions_legacy():
     """Legacy endpoint - redirects to snowflake blueprint"""

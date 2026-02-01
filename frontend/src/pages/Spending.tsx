@@ -1,8 +1,32 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import Header from '../components/Header'
 import { MdDownload, MdSearch } from 'react-icons/md'
 
-interface Transaction {
+interface TransactionProduct {
+  name?: string
+  quantity?: number
+  unit_price?: string
+}
+
+interface KnotTransaction {
+  id?: string
+  external_id?: string
+  datetime?: string
+  order_status?: string
+  price?: {
+    total?: string
+    currency?: string
+  }
+  products?: TransactionProduct[]
+  payment_methods?: Array<{
+    type?: string
+    brand?: string
+    last_four?: string
+    transaction_amount?: string
+  }>
+}
+
+interface MappedTransaction {
   id: string
   merchant: string
   category: string
@@ -19,96 +43,162 @@ interface Card {
   card_id: string
   card_type: string
   last_four: string
-  card_number: string
-}
-
-interface BackendTransaction {
-  id: string
-  merchant_name: string
-  category: string
-  datetime: string
-  total_amount: number
-  currency: string
 }
 
 const BACKEND_URL = 'http://localhost:5001'
+
+// Merchant configs for fetching
+const MERCHANTS = [
+  { id: 19, name: 'DoorDash', icon: '🍔', category: 'food delivery' },
+  { id: 44, name: 'Amazon', icon: '📦', category: 'shopping' },
+  { id: 45, name: 'Walmart', icon: '🛒', category: 'groceries' },
+  { id: 29, name: 'Uber', icon: '🚗', category: 'transportation' },
+]
 
 export default function Spending() {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedMerchant, setSelectedMerchant] = useState('all merchants')
   const [selectedCard, setSelectedCard] = useState('all cards')
   const [selectedTime, setSelectedTime] = useState('all time')
-  const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [transactions, setTransactions] = useState<MappedTransaction[]>([])
+  const [cards, setCards] = useState<Card[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Fetch data on mount
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true)
+  const fetchKnotTransactions = useCallback(async () => {
+    try {
+      setLoading(true)
+      setError(null)
 
-        // Fetch transactions
-        const txResponse = await fetch(`${BACKEND_URL}/api/snowflake/transactions?user_id=aman&limit=50`)
-        const txData = await txResponse.json()
+      // Fetch cards first
+      const cardsResponse = await fetch(`${BACKEND_URL}/api/cards?user_id=aman`)
+      const cardsData = await cardsResponse.json()
+      const fetchedCards = cardsData.cards || []
+      setCards(fetchedCards)
 
-        // Fetch cards
-        const cardsResponse = await fetch(`${BACKEND_URL}/api/cards?user_id=aman`)
-        const cardsData = await cardsResponse.json()
+      // Fetch transactions from all merchants
+      const allTransactions: MappedTransaction[] = []
 
-        // Map backend transactions to frontend format
-        const mappedTransactions: Transaction[] = (txData.transactions || []).map((tx: BackendTransaction, index: number) => {
-          // Assign a card (rotate through available cards)
-          const card = cardsData.cards && cardsData.cards.length > 0
-            ? cardsData.cards[index % cardsData.cards.length]
-            : { card_type: 'Unknown Card', last_four: '0000' }
+      for (const merchant of MERCHANTS) {
+        try {
+          const response = await fetch(`${BACKEND_URL}/api/knot/transactions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              user_id: 'aman',
+              merchant_id: merchant.id,
+              limit: 20
+            }),
+          })
 
-          // Parse datetime
-          const datetime = tx.datetime ? new Date(tx.datetime) : new Date()
-          const date = datetime.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+          if (response.ok) {
+            const data = await response.json()
+            const knotTransactions: KnotTransaction[] = data.transactions || []
 
-          // Calculate points (simple: $1 = 1 point, can be enhanced)
-          const points = Math.floor(Math.abs(tx.total_amount))
+            // Map Knot transactions to our format
+            knotTransactions.forEach((tx, index) => {
+              const card = fetchedCards.length > 0
+                ? fetchedCards[index % fetchedCards.length]
+                : { card_type: 'Unknown Card', last_four: '0000' }
 
-          return {
-            id: tx.id,
-            merchant: tx.merchant_name || 'Unknown Merchant',
-            category: tx.category || 'uncategorized',
-            card: card.card_type || 'Unknown Card',
-            cardLast4: card.last_four || '0000',
-            date: date,
-            time: `**${card.last_four}`,
-            points: points,
-            amount: -Math.abs(tx.total_amount), // Negative for spending
+              // Parse datetime
+              const datetime = tx.datetime ? new Date(tx.datetime) : new Date()
+              const date = datetime.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+              const time = `**${card.last_four}`
+
+              // Parse amount
+              const amount = tx.price?.total ? parseFloat(tx.price.total) : 0
+              const points = Math.floor(amount)
+
+              allTransactions.push({
+                id: tx.id || tx.external_id || `${merchant.id}-${index}`,
+                merchant: merchant.name,
+                category: merchant.category,
+                card: card.card_type || 'Unknown Card',
+                cardLast4: card.last_four || '0000',
+                date,
+                time,
+                points,
+                amount: -Math.abs(amount),
+                icon: merchant.icon,
+              })
+            })
           }
-        })
-
-        setTransactions(mappedTransactions)
-        setError(null)
-      } catch (err) {
-        console.error('Error fetching data:', err)
-        setError('Failed to load transactions. Please check if the backend is running.')
-      } finally {
-        setLoading(false)
+        } catch (err) {
+          console.warn(`Failed to fetch from ${merchant.name}:`, err)
+        }
       }
-    }
 
-    fetchData()
+      // Sort by date (most recent first)
+      allTransactions.sort((a, b) => {
+        const dateA = new Date(a.date)
+        const dateB = new Date(b.date)
+        return dateB.getTime() - dateA.getTime()
+      })
+
+      setTransactions(allTransactions)
+    } catch (err) {
+      console.error('Error fetching data:', err)
+      setError('Failed to load transactions. Please check if the backend is running.')
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
-  // Calculate stats from transactions
+  useEffect(() => {
+    fetchKnotTransactions()
+
+    // Auto-refresh every 60 seconds
+    const interval = setInterval(() => {
+      console.log('Auto-syncing spending data...')
+      fetchKnotTransactions()
+    }, 60000)
+
+    return () => clearInterval(interval)
+  }, [fetchKnotTransactions])
+
+  // Filter transactions
+  const filteredTransactions = transactions.filter(tx => {
+    const matchesSearch = tx.merchant.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      tx.category.toLowerCase().includes(searchQuery.toLowerCase())
+    const matchesMerchant = selectedMerchant === 'all merchants' ||
+      tx.merchant.toLowerCase() === selectedMerchant.toLowerCase()
+    const matchesCard = selectedCard === 'all cards' ||
+      tx.card.toLowerCase().includes(selectedCard.toLowerCase())
+    return matchesSearch && matchesMerchant && matchesCard
+  })
+
+  // Calculate stats
   const stats = {
-    totalSpent: transactions.reduce((sum, tx) => sum + Math.abs(tx.amount), 0),
-    totalTransactions: transactions.length,
-    totalEarned: 0, // This would come from a different source
-    totalDeposits: 0,
-    pointsEarned: transactions.reduce((sum, tx) => sum + tx.points, 0),
+    totalSpent: filteredTransactions.reduce((sum, tx) => sum + Math.abs(tx.amount), 0),
+    totalTransactions: filteredTransactions.length,
+    totalEarned: 6271.86, // Placeholder - would come from deposits
+    totalDeposits: 13,
+    pointsEarned: filteredTransactions.reduce((sum, tx) => sum + tx.points, 0),
   }
 
   const exportCSV = () => {
-    console.log('Exporting CSV...')
-    // Implement CSV export logic
+    const headers = ['Merchant', 'Category', 'Card', 'Date', 'Points', 'Amount']
+    const rows = filteredTransactions.map(tx => [
+      tx.merchant,
+      tx.category,
+      `${tx.card} **${tx.cardLast4}`,
+      tx.date,
+      tx.points,
+      tx.amount.toFixed(2)
+    ])
+    const csvContent = [headers, ...rows].map(row => row.join(',')).join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'spending_history.csv'
+    a.click()
+    URL.revokeObjectURL(url)
   }
+
+  // Get unique merchants for filter dropdown
+  const uniqueMerchants = [...new Set(transactions.map(tx => tx.merchant))]
 
   return (
     <div style={{ paddingBottom: '80px' }}>
@@ -163,7 +253,7 @@ export default function Spending() {
           textAlign: 'center',
           padding: '40px',
         }}>
-          Loading transactions...
+          Loading transactions from Knot...
         </div>
       )}
 
@@ -299,122 +389,131 @@ export default function Spending() {
           {/* Recent Activity Section */}
           <div>
             <div style={{
-              fontFamily: 'Coolvetica, sans-serif',
-              fontSize: '24px',
-              color: '#fff',
-              marginBottom: '24px',
-            }}>
-              recent activity
-            </div>
-
-            {/* Filters Row */}
-            <div style={{
               display: 'flex',
-              gap: '16px',
-              marginBottom: '24px',
+              justifyContent: 'space-between',
               alignItems: 'center',
+              marginBottom: '24px',
             }}>
-              {/* Search Transactions */}
               <div style={{
-                position: 'relative',
-                flex: '0 0 300px',
+                fontFamily: 'Coolvetica, sans-serif',
+                fontSize: '24px',
+                color: '#fff',
               }}>
-                <MdSearch
-                  size={18}
+                recent activity
+              </div>
+
+              {/* Filters Row */}
+              <div style={{
+                display: 'flex',
+                gap: '12px',
+                alignItems: 'center',
+              }}>
+                {/* Search Transactions */}
+                <div style={{
+                  position: 'relative',
+                  width: '200px',
+                }}>
+                  <MdSearch
+                    size={16}
+                    style={{
+                      position: 'absolute',
+                      left: '12px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      color: '#666',
+                    }}
+                  />
+                  <input
+                    type="text"
+                    placeholder="search transactions..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    style={{
+                      width: '100%',
+                      height: '36px',
+                      backgroundColor: '#1a1a1a',
+                      border: '1px solid #2a2a2a',
+                      borderRadius: '8px',
+                      padding: '0 12px 0 36px',
+                      fontSize: '13px',
+                      color: '#fff',
+                      outline: 'none',
+                      fontFamily: 'Coolvetica, sans-serif',
+                    }}
+                  />
+                </div>
+
+                {/* All Merchants Dropdown */}
+                <select
+                  value={selectedMerchant}
+                  onChange={(e) => setSelectedMerchant(e.target.value)}
                   style={{
-                    position: 'absolute',
-                    left: '16px',
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    color: '#666',
-                  }}
-                />
-                <input
-                  type="text"
-                  placeholder="search transactions..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  style={{
-                    width: '100%',
-                    height: '42px',
+                    height: '36px',
                     backgroundColor: '#1a1a1a',
                     border: '1px solid #2a2a2a',
                     borderRadius: '8px',
-                    padding: '0 16px 0 46px',
-                    fontSize: '14px',
+                    padding: '0 12px',
+                    fontSize: '13px',
                     color: '#fff',
                     outline: 'none',
                     fontFamily: 'Coolvetica, sans-serif',
+                    cursor: 'pointer',
                   }}
-                />
+                >
+                  <option value="all merchants">all merchants</option>
+                  {uniqueMerchants.map(m => (
+                    <option key={m} value={m.toLowerCase()}>{m}</option>
+                  ))}
+                </select>
+
+                {/* All Cards Dropdown */}
+                <select
+                  value={selectedCard}
+                  onChange={(e) => setSelectedCard(e.target.value)}
+                  style={{
+                    height: '36px',
+                    backgroundColor: '#1a1a1a',
+                    border: '1px solid #2a2a2a',
+                    borderRadius: '8px',
+                    padding: '0 12px',
+                    fontSize: '13px',
+                    color: '#fff',
+                    outline: 'none',
+                    fontFamily: 'Coolvetica, sans-serif',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <option value="all cards">all cards</option>
+                  {cards.map(c => (
+                    <option key={c.card_id} value={c.card_type.toLowerCase()}>
+                      {c.card_type} **{c.last_four}
+                    </option>
+                  ))}
+                </select>
+
+                {/* All Time Dropdown */}
+                <select
+                  value={selectedTime}
+                  onChange={(e) => setSelectedTime(e.target.value)}
+                  style={{
+                    height: '36px',
+                    backgroundColor: '#1a1a1a',
+                    border: '1px solid #2a2a2a',
+                    borderRadius: '8px',
+                    padding: '0 12px',
+                    fontSize: '13px',
+                    color: '#fff',
+                    outline: 'none',
+                    fontFamily: 'Coolvetica, sans-serif',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <option value="all time">all time</option>
+                  <option value="today">Today</option>
+                  <option value="this week">This Week</option>
+                  <option value="this month">This Month</option>
+                </select>
               </div>
-
-              {/* All Merchants Dropdown */}
-              <select
-                value={selectedMerchant}
-                onChange={(e) => setSelectedMerchant(e.target.value)}
-                style={{
-                  height: '42px',
-                  backgroundColor: '#1a1a1a',
-                  border: '1px solid #2a2a2a',
-                  borderRadius: '8px',
-                  padding: '0 16px',
-                  fontSize: '14px',
-                  color: '#fff',
-                  outline: 'none',
-                  fontFamily: 'Coolvetica, sans-serif',
-                  cursor: 'pointer',
-                }}
-              >
-                <option value="all merchants">all merchants</option>
-                <option value="whole foods">Whole Foods</option>
-                <option value="amazon">Amazon</option>
-              </select>
-
-              {/* All Cards Dropdown */}
-              <select
-                value={selectedCard}
-                onChange={(e) => setSelectedCard(e.target.value)}
-                style={{
-                  height: '42px',
-                  backgroundColor: '#1a1a1a',
-                  border: '1px solid #2a2a2a',
-                  borderRadius: '8px',
-                  padding: '0 16px',
-                  fontSize: '14px',
-                  color: '#fff',
-                  outline: 'none',
-                  fontFamily: 'Coolvetica, sans-serif',
-                  cursor: 'pointer',
-                }}
-              >
-                <option value="all cards">all cards</option>
-                <option value="freedom unlimited">Freedom Unlimited</option>
-                <option value="sapphire reserve">Sapphire Reserve</option>
-              </select>
-
-              {/* All Time Dropdown */}
-              <select
-                value={selectedTime}
-                onChange={(e) => setSelectedTime(e.target.value)}
-                style={{
-                  height: '42px',
-                  backgroundColor: '#1a1a1a',
-                  border: '1px solid #2a2a2a',
-                  borderRadius: '8px',
-                  padding: '0 16px',
-                  fontSize: '14px',
-                  color: '#fff',
-                  outline: 'none',
-                  fontFamily: 'Coolvetica, sans-serif',
-                  cursor: 'pointer',
-                }}
-              >
-                <option value="all time">all time</option>
-                <option value="today">Today</option>
-                <option value="this week">This Week</option>
-                <option value="this month">This Month</option>
-              </select>
             </div>
 
             {/* Transactions Table */}
@@ -475,8 +574,21 @@ export default function Spending() {
                 </div>
               </div>
 
+              {/* Empty State */}
+              {filteredTransactions.length === 0 && (
+                <div style={{
+                  padding: '48px',
+                  textAlign: 'center',
+                  color: '#666',
+                  fontFamily: 'Coolvetica, sans-serif',
+                }}>
+                  <div style={{ fontSize: '48px', marginBottom: '16px' }}>📭</div>
+                  <div>No transactions found. Connect merchants to sync your spending.</div>
+                </div>
+              )}
+
               {/* Table Rows */}
-              {transactions.map((transaction) => (
+              {filteredTransactions.map((transaction) => (
                 <div
                   key={transaction.id}
                   style={{
@@ -496,18 +608,14 @@ export default function Spending() {
                       width: '44px',
                       height: '44px',
                       borderRadius: '50%',
-                      backgroundColor: '#2a2a2a',
+                      background: 'linear-gradient(135deg, #1db954 0%, #191414 100%)',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       flexShrink: 0,
+                      fontSize: '20px',
                     }}>
-                      <div style={{
-                        width: '24px',
-                        height: '24px',
-                        borderRadius: '4px',
-                        backgroundColor: '#444',
-                      }} />
+                      {transaction.icon || '💳'}
                     </div>
                     <div>
                       <div style={{
@@ -581,7 +689,7 @@ export default function Spending() {
                   }}>
                     <div style={{
                       fontFamily: 'Coolvetica, sans-serif',
-                      fontSize: '15px',
+                      fontSize: '14px',
                       color: '#a78bfa',
                       backgroundColor: '#2d1f4d',
                       padding: '6px 14px',
@@ -599,9 +707,9 @@ export default function Spending() {
                   }}>
                     <div style={{
                       fontFamily: 'Coolvetica, sans-serif',
-                      fontSize: '15px',
+                      fontSize: '14px',
                       color: '#ff6b6b',
-                      backgroundColor: '#3d1f1f',
+                      background: 'linear-gradient(90deg, rgba(61,31,31,0.3) 0%, rgba(61,31,31,0.8) 100%)',
                       padding: '6px 14px',
                       borderRadius: '20px',
                     }}>
