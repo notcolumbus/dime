@@ -165,7 +165,23 @@ def sync_transactions():
             import traceback
             traceback.print_exc()
 
-    # Sort all aggregated transactions by date
+    # After syncing, return enriched data from Snowflake (with categories!)
+    if db:
+        try:
+            limit = int(data.get("limit", 100))
+            enriched_transactions = db.get_transactions(user_id, limit=limit)
+            # Map to include spend_category field that frontend expects
+            for tx in enriched_transactions:
+                tx["spend_category"] = tx.get("category")  # Ensure field name consistency
+            return jsonify({
+                "success": True, 
+                "total": len(enriched_transactions),
+                "transactions": enriched_transactions
+            })
+        except Exception as e:
+            print(f"⚠️ Falling back to raw transactions: {e}")
+    
+    # Fallback to raw Knot data (without categories)
     all_transactions.sort(key=lambda x: x.get("datetime", ""), reverse=True)
     
     return jsonify({
