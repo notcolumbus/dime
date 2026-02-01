@@ -88,9 +88,10 @@ function App() {
 
       const transformedCards = (data.cards || []).map(transformCard);
 
-      // Sort by cashback rate descending so best card is first
+      // Sort by cashback rate ascending so current (lower benefit) card is first
+      // and ideal (better benefit) cards are shown as alternatives
       transformedCards.sort((a: CardDisplayData, b: CardDisplayData) =>
-        b.cashbackPercentage - a.cashbackPercentage
+        a.cashbackPercentage - b.cashbackPercentage
       );
 
       setCards(transformedCards);
@@ -108,8 +109,11 @@ function App() {
     // using the Knot API or similar service
   }
 
+  // Primary card is the current (lower benefit) card
+  // Alternative cards are better options (with ideal badge on the best one)
   const primaryCard = cards[0];
-  const alternativeCards = cards.slice(1);
+  // Reverse so the best card (highest cashback) is first and gets the "ideal" badge
+  const alternativeCards = cards.slice(1).reverse();
 
   if (loading) {
     return (
