@@ -5,6 +5,10 @@
   font-style: normal;
 }
 
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
 :root {
   font-family: 'Coolvetica', system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;

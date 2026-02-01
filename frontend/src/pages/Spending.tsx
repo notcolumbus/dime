@@ -235,8 +235,7 @@ export default function Spending() {
           {/* Search Transactions */}
           <div style={{
             position: 'relative',
-            flex: '1',
-            maxWidth: '300px',
+            flex: '0 0 300px',
           }}>
             <MdSearch
               size={18}
