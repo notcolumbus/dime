@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import Header from '../components/Header'
 import { MdChevronLeft, MdChevronRight, MdAdd, MdClose } from 'react-icons/md'
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 
 // Import SVG icons
 import PrimeIcon from '../public/Prime.svg'
@@ -40,6 +41,12 @@ interface CardData {
   balance: number
   status: string
   currency: string
+}
+
+interface TrendData {
+  month: string
+  spending: number
+  income: number
 }
 
 // Sample data - replace with API calls
@@ -146,6 +153,69 @@ export default function Home() {
   const [avgUtilization, setAvgUtilization] = useState(69) // percentage
   const [totalEarned, setTotalEarned] = useState(77) // percentage
   const [totalEarnedAmount, setTotalEarnedAmount] = useState(1250.00)
+  const [trendData, setTrendData] = useState<TrendData[]>([])
+
+  // Fetch spending and income trends
+  useEffect(() => {
+    const fetchTrends = async () => {
+      const API_URL = 'http://localhost:5001/api'
+      try {
+        const [spendingRes, incomeRes] = await Promise.all([
+          fetch(`${API_URL}/spending-trends?months=6`),
+          fetch(`${API_URL}/nessie/income-trends?months=6`)
+        ])
+
+        const spendingData = await spendingRes.json()
+        const incomeData = await incomeRes.json()
+
+        const spendingTrends = spendingData.trends || []
+        const incomeTrends = incomeData.trends || []
+
+        // Merge the data by month
+        const monthMap: Record<string, TrendData> = {}
+
+        spendingTrends.forEach((item: { month: string; amount: number }) => {
+          monthMap[item.month] = {
+            month: item.month,
+            spending: item.amount,
+            income: 0
+          }
+        })
+
+        incomeTrends.forEach((item: { month: string; amount: number }) => {
+          if (monthMap[item.month]) {
+            monthMap[item.month].income = item.amount
+          } else {
+            monthMap[item.month] = {
+              month: item.month,
+              spending: 0,
+              income: item.amount
+            }
+          }
+        })
+
+        // Convert to array and sort by month order
+        const monthOrder = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+        const mergedData = Object.values(monthMap).sort((a, b) => {
+          return monthOrder.indexOf(a.month) - monthOrder.indexOf(b.month)
+        })
+
+        setTrendData(mergedData)
+      } catch (err) {
+        console.error('Failed to fetch trends:', err)
+        // Set sample data on error - non-parallel patterns
+        setTrendData([
+          { month: 'Aug', spending: 2850, income: 4200 },
+          { month: 'Sep', spending: 2600, income: 4350 },
+          { month: 'Oct', spending: 3100, income: 4400 },
+          { month: 'Nov', spending: 3950, income: 5200 },
+          { month: 'Dec', spending: 3400, income: 4500 },
+          { month: 'Jan', spending: 2900, income: 4650 },
+        ])
+      }
+    }
+    fetchTrends()
+  }, [])
 
   // Form state for add card modal
   const [cardNumber, setCardNumber] = useState('')
@@ -476,7 +546,37 @@ export default function Home() {
         <div style={{ display: 'flex', gap: '10px' }}>
           <div style={{ flex: 1, borderRadius: '16px', padding: '20px', backgroundColor: '#1E1E1E' }}>
             <p style={{ color: '#6b7280', fontSize: '22px', marginBottom: '16px', marginTop: 0 }}>spending & income trend</p>
-            <div style={{ width: '100%', height: '192px', borderRadius: '16px', backgroundColor: '#2A2A2A' }} />
+            <div style={{ width: '100%', height: '192px' }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={trendData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                  <XAxis dataKey="month" stroke="#666" fontSize={12} />
+                  <YAxis stroke="#666" fontSize={12} tickFormatter={(value) => `$${(value / 1000).toFixed(1)}k`} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#252525', border: '1px solid #333', borderRadius: '8px' }}
+                    labelStyle={{ color: '#fff' }}
+                    formatter={(value: number) => [`$${value.toLocaleString()}`, '']}
+                  />
+                  <Legend wrapperStyle={{ fontSize: '12px' }} />
+                  <Line
+                    type="monotone"
+                    dataKey="spending"
+                    stroke="#a855f7"
+                    strokeWidth={2}
+                    dot={{ fill: '#a855f7', strokeWidth: 2, r: 4 }}
+                    activeDot={{ r: 6 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="income"
+                    stroke="#2DD4BF"
+                    strokeWidth={2}
+                    dot={{ fill: '#2DD4BF', strokeWidth: 2, r: 4 }}
+                    activeDot={{ r: 6 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
           </div>
 
           {/* Avg Utilization - Dynamic */}

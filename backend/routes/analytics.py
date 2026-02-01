@@ -3,9 +3,11 @@ Analytics Routes
 - Top of file data
 - Cashflow analytics
 - Alerts
+- Spending trends
 """
 
 from flask import Blueprint, request, jsonify
+from datetime import datetime, timedelta
 
 analytics_bp = Blueprint('analytics', __name__, url_prefix='/api')
 
@@ -191,17 +193,108 @@ def get_transactions():
     db = get_snowflake()
     if not db:
         return jsonify({"error": "Snowflake not configured", "transactions": []}), 500
-    
+
     user_id = request.args.get("user_id", "aman")
     merchant_id = request.args.get("merchant_id")
     limit = int(request.args.get("limit", 100))
-    
+
     try:
         if merchant_id:
             merchant_id = int(merchant_id)
-            
+
         transactions = db.get_transactions(user_id, merchant_id, limit)
         return jsonify({"transactions": transactions})
     except Exception as e:
         return jsonify({"error": str(e), "transactions": []}), 500
+
+
+@analytics_bp.route("/spending-trends", methods=["GET", "POST"])
+def spending_trends():
+    """
+    Get spending trends aggregated by month.
+    Returns monthly spending totals for charting.
+    """
+    db = get_snowflake()
+    data = request.json if request.method == "POST" else {}
+    user_id = data.get("user_id", request.args.get("user_id", "aman"))
+    months = int(data.get("months", request.args.get("months", 6)))
+
+    if not db:
+        # Return sample data when Snowflake not configured
+        return jsonify({
+            "source": "sample",
+            "message": "Using sample data. Configure Snowflake for live data.",
+            "trends": _get_sample_spending_trends(months)
+        })
+
+    try:
+        conn, cursor = db._get_connection()
+        cursor.execute("""
+            SELECT
+                DATE_TRUNC('month', datetime) AS month,
+                SUM(total_amount) AS total_spent
+            FROM TRANSACTIONS
+            WHERE user_id = %s
+              AND datetime >= DATEADD(month, -%s, CURRENT_TIMESTAMP())
+            GROUP BY DATE_TRUNC('month', datetime)
+            ORDER BY month ASC
+        """, (user_id, months))
+
+        rows = cursor.fetchall()
+
+        if not rows:
+            return jsonify({
+                "source": "sample",
+                "message": "No spending data found. Using sample data.",
+                "trends": _get_sample_spending_trends(months)
+            })
+
+        trends = []
+        for row in rows:
+            month_date = row[0]
+            if isinstance(month_date, str):
+                month_date = datetime.strptime(month_date[:10], "%Y-%m-%d")
+            trends.append({
+                "month": month_date.strftime("%b"),
+                "amount": float(row[1]) if row[1] else 0
+            })
+
+        return jsonify({
+            "source": "snowflake",
+            "user_id": user_id,
+            "months": months,
+            "trends": trends
+        })
+    except Exception as e:
+        return jsonify({
+            "source": "sample",
+            "error": str(e),
+            "message": "Error fetching from Snowflake. Using sample data.",
+            "trends": _get_sample_spending_trends(months)
+        })
+
+
+def _get_sample_spending_trends(months=6):
+    """Return sample spending data for demo purposes"""
+    today = datetime.now()
+    sample_data = []
+
+    # Predefined spending pattern - varies independently from income
+    # Pattern: moderate start, dip, spike (holidays), normalize
+    spending_pattern = [2850, 2600, 3100, 3950, 3400, 2900]
+
+    for i in range(months - 1, -1, -1):
+        month_date = today - timedelta(days=30 * i)
+        month_label = month_date.strftime("%b")
+
+        # Use predefined pattern with slight random variation
+        pattern_index = (months - 1 - i) % len(spending_pattern)
+        amount = spending_pattern[pattern_index]
+
+        sample_data.append({
+            "month": month_label,
+            "amount": round(amount, 2)
+        })
+
+    return sample_data
 

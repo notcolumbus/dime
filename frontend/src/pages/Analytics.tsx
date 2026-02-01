@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Header from '../components/Header'
 import Footer from '../components/Footer'
 import { MdSearch, MdTrendingUp, MdLightbulb, MdWarning, MdEdit, MdFileDownload, MdKeyboardArrowDown } from 'react-icons/md'
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 
 // Import stat card icons
 import PointsIcon from '../public/Points_Icon.svg'
@@ -27,6 +28,12 @@ interface InsightCard {
   type: 'positive' | 'opportunity' | 'alert'
   title: string
   description: string
+}
+
+interface TrendData {
+  month: string
+  spending: number
+  income: number
 }
 
 // Sample data
@@ -106,6 +113,69 @@ export default function Analytics() {
   const [searchQuery, setSearchQuery] = useState('')
   const [cardFilter, setCardFilter] = useState('all cards')
   const [timeFilter, setTimeFilter] = useState('all time')
+  const [trendData, setTrendData] = useState<TrendData[]>([])
+
+  // Fetch spending and income trends on mount
+  useEffect(() => {
+    const fetchTrends = async () => {
+      const API_URL = 'http://localhost:5001/api'
+      try {
+        const [spendingRes, incomeRes] = await Promise.all([
+          fetch(`${API_URL}/spending-trends?months=6`),
+          fetch(`${API_URL}/nessie/income-trends?months=6`)
+        ])
+
+        const spendingData = await spendingRes.json()
+        const incomeData = await incomeRes.json()
+
+        const spendingTrends = spendingData.trends || []
+        const incomeTrends = incomeData.trends || []
+
+        // Merge the data by month
+        const monthMap: Record<string, TrendData> = {}
+
+        spendingTrends.forEach((item: { month: string; amount: number }) => {
+          monthMap[item.month] = {
+            month: item.month,
+            spending: item.amount,
+            income: 0
+          }
+        })
+
+        incomeTrends.forEach((item: { month: string; amount: number }) => {
+          if (monthMap[item.month]) {
+            monthMap[item.month].income = item.amount
+          } else {
+            monthMap[item.month] = {
+              month: item.month,
+              spending: 0,
+              income: item.amount
+            }
+          }
+        })
+
+        // Convert to array and sort by month order
+        const monthOrder = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+        const mergedData = Object.values(monthMap).sort((a, b) => {
+          return monthOrder.indexOf(a.month) - monthOrder.indexOf(b.month)
+        })
+
+        setTrendData(mergedData)
+      } catch (err) {
+        console.error('Failed to fetch trends:', err)
+        // Set sample data on error - non-parallel patterns
+        setTrendData([
+          { month: 'Aug', spending: 2850, income: 4200 },
+          { month: 'Sep', spending: 2600, income: 4350 },
+          { month: 'Oct', spending: 3100, income: 4400 },
+          { month: 'Nov', spending: 3950, income: 5200 },
+          { month: 'Dec', spending: 3400, income: 4500 },
+          { month: 'Jan', spending: 2900, income: 4650 },
+        ])
+      }
+    }
+    fetchTrends()
+  }, [])
 
   // Calculate circumference for donut charts
   const circumference = 2 * Math.PI * 42
@@ -371,12 +441,37 @@ export default function Analytics() {
             }}>
               spending & income trends
             </p>
-            <div style={{
-              width: '100%',
-              height: '180px',
-              backgroundColor: '#252525',
-              borderRadius: '12px',
-            }} />
+            <div style={{ width: '100%', height: '180px' }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={trendData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                  <XAxis dataKey="month" stroke="#666" fontSize={12} />
+                  <YAxis stroke="#666" fontSize={12} tickFormatter={(value) => `$${(value / 1000).toFixed(1)}k`} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#252525', border: '1px solid #333', borderRadius: '8px' }}
+                    labelStyle={{ color: '#fff' }}
+                    formatter={(value: number) => [`$${value.toLocaleString()}`, '']}
+                  />
+                  <Legend wrapperStyle={{ fontSize: '12px' }} />
+                  <Line
+                    type="monotone"
+                    dataKey="spending"
+                    stroke="#a855f7"
+                    strokeWidth={2}
+                    dot={{ fill: '#a855f7', strokeWidth: 2, r: 4 }}
+                    activeDot={{ r: 6 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="income"
+                    stroke="#2DD4BF"
+                    strokeWidth={2}
+                    dot={{ fill: '#2DD4BF', strokeWidth: 2, r: 4 }}
+                    activeDot={{ r: 6 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
           </div>
 
           {/* By Category Donut */}

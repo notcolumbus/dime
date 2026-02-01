@@ -252,15 +252,17 @@ def _get_sample_income_trends():
     today = datetime.now()
     sample_data = []
 
-    # Generate 6 months of sample income data
-    base_income = 4500
+    # Predefined income pattern - steadier than spending but with growth trend
+    # Pattern: stable base with gradual increase and bonus month
+    income_pattern = [4200, 4350, 4400, 5200, 4500, 4650]
+
     for i in range(5, -1, -1):
         month_date = today - timedelta(days=30 * i)
         month_label = month_date.strftime("%b")
 
-        # Add some variation to make it look realistic
-        variation = (hash(month_label) % 1000) - 500
-        amount = base_income + variation
+        # Use predefined pattern
+        pattern_index = 5 - i
+        amount = income_pattern[pattern_index]
 
         sample_data.append({
             "month": month_label,
